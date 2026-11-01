@@ -9,10 +9,13 @@ type NativeAudioFile = { uri: string; name: string; type?: string; size?: number
 const FolderAccess = registerPlugin<{
   pickFolder(): Promise<{ uri: string; name: string; files: NativeAudioFile[] }>;
   listFolder(options: { uri: string }): Promise<{ uri: string; name: string; files: NativeAudioFile[] }>;
-  readFile(options: { uri: string }): Promise<{ base64: string }>;
+  beginReadFile(options: { uri: string }): Promise<{ sessionId: string; mimeType: string }>;
+  readFileChunk(options: { sessionId: string }): Promise<{ base64: string; done: boolean }>;
+  closeReadFile(options: { sessionId: string }): Promise<void>;
 }>("FolderAccess");
 const PartyHost = registerPlugin<{
   startParty(options: { name: string; entryMode: string; tracks: TrackType[] }): Promise<{ code: string; lanUrl: string; qrDataUrl: string }>;
+  updateLibrary(options: { tracks: Array<Partial<TrackType>> }): Promise<void>;
   updateQueue(options: { snapshot: any }): Promise<void>;
   stopParty(): Promise<void>;
   setEntryMode(options: { mode: string }): Promise<void>;
@@ -167,13 +170,25 @@ function durationOf(blob: Blob): Promise<number> {
   return new Promise((resolve) => {
     const audio = document.createElement("audio");
     const url = URL.createObjectURL(blob);
-    audio.preload = "metadata";
-    audio.onloadedmetadata = () => {
-      const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout>;
+    const finish = (duration: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      audio.onloadedmetadata = null;
+      audio.onerror = null;
+      try { audio.pause(); audio.removeAttribute("src"); audio.load(); } catch (_) { /* Ignore WebView cleanup errors. */ }
       URL.revokeObjectURL(url);
       resolve(duration);
     };
-    audio.onerror = () => { URL.revokeObjectURL(url); resolve(0); };
+    timeout = setTimeout(() => finish(0), 5000);
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => {
+      const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+      finish(duration);
+    };
+    audio.onerror = () => finish(0);
     audio.src = url;
   });
 }
@@ -189,7 +204,8 @@ async function importFiles(
   files: File[],
   folder?: MobileFolder,
   notify = true,
-  knownSourceKeys?: Set<string>
+  knownSourceKeys?: Set<string>,
+  reportProgress = true
 ) {
   const db = await database();
   const valid = files.filter((file) => ACCEPTED_AUDIO.test(file.name));
@@ -203,7 +219,7 @@ async function importFiles(
     const parts = fileNameParts(file.name);
     let tags: ReturnType<typeof readMp3Tags> = {};
     if (/\.mp3$/i.test(file.name)) {
-      try { tags = readMp3Tags(await file.arrayBuffer()); } catch (_) { /* Use the filename when tags are damaged. */ }
+      try { tags = readMp3Tags(await file.slice(0, 1024 * 1024).arrayBuffer()); } catch (_) { /* Use the filename when tags are damaged. */ }
     }
     const title = tags.title || parts.title;
     const artist = tags.artist || parts.artist;
@@ -239,7 +255,7 @@ async function importFiles(
     mediaUrls[fileLocation] = URL.createObjectURL(file);
     imported.push(track);
     if (knownSourceKeys) knownSourceKeys.add(sourceKey);
-    emit("parsingProgress", [Math.round(((index + 1) / valid.length) * 100), valid.length]);
+    if (reportProgress) emit("parsingProgress", [index + 1, valid.length]);
   }
   if (notify && imported.length) {
     emit("addMultipleTracks", imported.map(({ mobileBlobId, ...track }) => track as TrackType));
@@ -260,36 +276,99 @@ function decodeBase64Blob(encoded: string, mimeType: string): Blob {
 
 async function importNativeFolder(folder: MobileFolder, notify: boolean, files?: NativeAudioFile[]) {
   const listing = files ? { files } : await FolderAccess.listFolder({ uri: folder.uri });
+  if (!listing.files || !listing.files.length) {
+    throw new Error("Nenhum arquivo de música compatível foi encontrado na pasta selecionada.");
+  }
   const known = new Set((await allTracks()).map((track) => track.mobileSourceKey).filter(Boolean) as string[]);
   const importedTracks: StoredTrack[] = [];
   let importedCount = 0;
-  for (const item of listing.files || []) {
+  const failedFiles: string[] = [];
+  const audioFiles = listing.files || [];
+  for (const [index, item] of audioFiles.entries()) {
     const sourceKey = `${folder.uri}|${item.uri}|${item.size || 0}|${item.lastModified || 0}`;
-    if (known.has(sourceKey)) continue;
-    const { base64 } = await FolderAccess.readFile({ uri: item.uri });
-    const blob = decodeBase64Blob(base64, item.type || "application/octet-stream");
-    const file = new File([blob], item.name, {
-      type: item.type || "application/octet-stream",
-      lastModified: item.lastModified || Date.now(),
-    });
-    Object.defineProperty(file, "__mobileSourceKey", { value: sourceKey });
-    const imported = await importFiles([file], folder, false, known);
-    importedTracks.push(...imported);
-    importedCount += imported.length;
+    try {
+      if (!known.has(sourceKey)) {
+        const { sessionId, mimeType } = await FolderAccess.beginReadFile({ uri: item.uri });
+        const chunks: Blob[] = [];
+        try {
+          let done = false;
+          while (!done) {
+            const chunk = await FolderAccess.readFileChunk({ sessionId });
+            if (chunk.base64) chunks.push(decodeBase64Blob(chunk.base64, mimeType || item.type || "application/octet-stream"));
+            done = chunk.done;
+          }
+        } finally {
+          await FolderAccess.closeReadFile({ sessionId }).catch(() => undefined);
+        }
+        const blob = new Blob(chunks, { type: mimeType || item.type || "application/octet-stream" });
+        const file = new File([blob], item.name, {
+          type: item.type || "application/octet-stream",
+          lastModified: item.lastModified || Date.now(),
+        });
+        Object.defineProperty(file, "__mobileSourceKey", { value: sourceKey });
+        const imported = await importFiles([file], folder, false, known, false);
+        importedTracks.push(...imported);
+        importedCount += imported.length;
+        if (!imported.length) failedFiles.push(item.name || "arquivo sem nome");
+      }
+    } catch (error) {
+      console.warn("Could not import audio file from selected folder", item.name, error);
+      failedFiles.push(item.name || "arquivo sem nome");
+    }
+    if (notify) emit("parsingProgress", [index + 1, audioFiles.length]);
   }
-  if (notify && importedCount) {
+  if (notify) {
     const all = await allTracks();
     await hydrateMediaUrls(all);
-    emit("addMultipleTracks", importedTracks.map(({ mobileBlobId, ...track }) => track as TrackType));
+    if (importedTracks.length) {
+      emit("addMultipleTracks", importedTracks.map(({ mobileBlobId, ...track }) => track as TrackType));
+    }
     emit("processedFiles", all.map(({ mobileBlobId, ...track }) => track as TrackType));
     emit("parsingDone");
+    await syncPartyLibrary(all);
+    if (failedFiles.length) {
+      const examples = failedFiles.slice(0, 3).join(", ");
+      emit("mobileFolderScanError", {
+        message: `${failedFiles.length} música(s) não puderam ser importadas${examples ? `: ${examples}` : ""}. As demais foram adicionadas.`,
+      });
+    } else if (!all.length) {
+      emit("mobileFolderScanError", {
+        message: "A pasta foi lida, mas nenhum áudio compatível foi importado.",
+      });
+    }
   }
   return importedCount;
+}
+
+async function syncPartyLibrary(tracks?: StoredTrack[]) {
+  try {
+    const library = tracks || await allTracks();
+    await PartyHost.updateLibrary({
+      tracks: library.map((track) => ({
+        fileLocation: track.fileLocation,
+        defaultTitle: track.defaultTitle || track.title || track.fileName,
+        defaultArtist: track.defaultArtist || track.artist || "",
+        album: track.album || "",
+        formattedLength: track.formattedLength || "",
+        duration: Number(track.duration) || 0,
+      })),
+    });
+  } catch (error) {
+    // No room is running during normal library imports; the next room starts
+    // with the current library snapshot.
+    console.warn("Could not refresh the Android party library", error);
+  }
 }
 
 async function chooseAndImportFolder() {
   const selected = await FolderAccess.pickFolder();
   const folder = { uri: selected.uri, name: selected.name || "Music" };
+  try {
+    await importNativeFolder(folder, true, selected.files);
+  } catch (error: any) {
+    emit("mobileFolderScanError", { message: error && error.message ? error.message : "Não foi possível ler a pasta selecionada." });
+    throw error;
+  }
   const folders: MobileFolder[] = await readRecord("mobileFolders", []);
   const updatedFolders = folders.some((item) => item.uri === folder.uri)
     ? folders
@@ -302,7 +381,6 @@ async function chooseAndImportFolder() {
   await writeRecord("settings", settings);
   emit("userSettings", settings);
   emit("foldersToScan", settings.foldersToScan);
-  await importNativeFolder(folder, true, selected.files);
 }
 
 async function hydrateMediaUrls(tracks: StoredTrack[]) {

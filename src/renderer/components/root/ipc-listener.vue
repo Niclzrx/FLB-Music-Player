@@ -238,6 +238,13 @@ export default {
     ipcRenderer.on("foldersToScan", (e, folders) => {
       this.setScannedFolders(folders);
     });
+    ipcRenderer.on("mobileFolderScanError", (e, payload) => {
+      this.pushNotification({
+        title: "mobile.folderScanFailed",
+        subTitle: payload && payload.message ? payload.message : "mobile.folderScanError",
+        type: "danger",
+      });
+    });
     ipcRenderer.on("removeSelectedTracks", () => {
       this.removeSelectedTracksFromAppState();
     });
@@ -253,7 +260,7 @@ export default {
       this.popNotification();
     });
     ipcRenderer.on("parsingProgress", (e, [currentIndex, total]) => {
-      if (currentIndex === 100) {
+      if (total > 0 && currentIndex >= total) {
         this.hideOnboard = true;
         console.log(total);
       }

@@ -6,15 +6,10 @@
       theme + '_theme',
       miniMode ? 'miniMode' : '',
       isMobile ? 'mobileMode' : '',
-      'pb5 pl5 pr5',
     ]"
     @click="cleanUp"
   >
     <custom-title-bar v-if="!isMobile" class="mb5" />
-    <header v-if="isMobile" class="mobileBrandBar">
-      <img src="@img/logo.png" alt="FLB Music" />
-      <span>FLB Music</span>
-    </header>
     <ipc-listener />
     <transition
       enter-active-class="animated slideInUp extrafaster"
@@ -35,7 +30,7 @@
     <nav v-if="isMobile" class="mobileBottomNav" aria-label="Primary navigation">
       <button :class="{ active: currentPage === 'My Music' }" @click="goToPage('My Music')">
         <img src="@icon/music.svg" alt="" />
-        <span>{{ t('mobile.music') }}</span>
+        <span>{{ t('mobile.home') }}</span>
       </button>
       <button :class="{ active: currentPage === 'FLBing' }" @click="goToPage('FLBing')">
         <img src="@icon/meld.svg" alt="" />
@@ -199,34 +194,12 @@ body {
     height: 100dvh;
     min-height: 100dvh;
     box-sizing: border-box;
-    padding: calc(env(safe-area-inset-top) + 5px) 5px 5px !important;
+    padding: env(safe-area-inset-top) 0 0 !important;
     overflow: hidden;
   }
   .customTitleBar,
   .sideNav {
     display: none !important;
-  }
-  .mobileBrandBar {
-    height: 56px;
-    min-height: 56px;
-    padding: 0 12px;
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    border-bottom: 1px solid var(--borderColor);
-    background: color-mix(in srgb, var(--primaryColor) 92%, transparent);
-    backdrop-filter: blur(24px);
-    z-index: 10;
-  }
-  .mobileBrandBar img {
-    width: 28px;
-    height: 28px;
-    object-fit: contain;
-  }
-  .mobileBrandBar span {
-    font-weight: 720;
-    letter-spacing: .02em;
-    color: var(--textColor);
   }
   #main-view,
   #sub-view-1 {
@@ -271,7 +244,7 @@ body {
     max-height: none;
     margin: 0;
     min-height: 0;
-    padding: 14px 14px calc(150px + env(safe-area-inset-bottom));
+    padding: 8px 8px calc(150px + env(safe-area-inset-bottom));
     border-radius: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -279,8 +252,8 @@ body {
   .Tabswitcher {
     justify-content: flex-start;
     gap: 8px;
-    margin: 6px -2px 14px;
-    padding: 2px 2px 8px;
+    margin: 6px 0 12px;
+    padding: 3px 5px 8px;
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: none;
@@ -548,14 +521,41 @@ body {
   }
   .Titlebar {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 8px;
-    padding-bottom: 12px;
+    grid-template-columns: minmax(0, 1fr) 36px 36px;
+    gap: 6px;
+    padding: 0 2px 10px;
+  }
+  .Titlebar .pos-rel {
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 38px;
+  }
+  .Titlebar > .multiSelect {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .Titlebar .sortWidget {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .Titlebar .multiSelect,
+  .Titlebar .sortToggleButton {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 11px;
+  }
+  .Titlebar .multiSelect .btnText,
+  .Titlebar .sortToggleButton .btnText {
+    display: none;
   }
   .Titlebar #search {
     min-width: 0;
     width: 100%;
-    min-height: 44px;
+    height: 38px;
+    min-height: 38px;
+    box-sizing: border-box;
     background: var(--primaryColor);
     border: 1px solid var(--borderColor);
   }
@@ -577,7 +577,6 @@ body {
     background: color-mix(in srgb, var(--appBackground) 86%, transparent);
     backdrop-filter: blur(26px);
   }
-  .fullScreenPlayingPane .mobileBrandBar,
   .fullScreenPlayingPane .mobileBottomNav {
     display: none !important;
   }
@@ -715,6 +714,26 @@ body {
     border-radius: 16px;
     line-height: 1.5;
     opacity: .78;
+  }
+  .home .overLayedTracks.horizontal_overlay {
+    box-sizing: border-box;
+    max-width: 100%;
+    padding: 10px 12px 16px;
+    overflow-x: auto;
+    overflow-y: visible;
+    scroll-padding-inline: 12px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .home .overLayedTracks.horizontal_overlay .card {
+    flex: 0 0 140px;
+    margin-left: 0;
+  }
+  .home .overLayedTracks.horizontal_overlay .card:not(:first-child) {
+    margin-left: 0;
+  }
+  .home .overLayedTracks.horizontal_overlay .card:hover,
+  .home .overLayedTracks.horizontal_overlay .card:hover ~ .card {
+    transform: none;
   }
 }
 </style>

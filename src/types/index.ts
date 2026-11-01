@@ -29,6 +29,7 @@ export interface PartyGuestInfoType {
   name: string;
   addedTracks: number;
   joinedAt: number;
+  status?: "connecting" | "online";
 }
 /**
  * How the suggestions of the guests enter the queue: straight in ("free")

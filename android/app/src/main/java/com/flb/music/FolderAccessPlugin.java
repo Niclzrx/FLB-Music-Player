@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
-import android.os.Build;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.util.Base64;
@@ -18,14 +17,18 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
-import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @CapacitorPlugin(name = "FolderAccess")
 public class FolderAccessPlugin extends Plugin {
+    private static final int READ_CHUNK_SIZE = 256 * 1024;
+    private final Map<String, InputStream> activeReads = new ConcurrentHashMap<>();
     private static final String[] AUDIO_EXTENSIONS = {
         ".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg", ".opus",
         ".wma", ".aiff", ".ape"
@@ -61,11 +64,15 @@ public class FolderAccessPlugin extends Plugin {
             // The current selection remains readable; Android may omit persistable flags for some providers.
         }
 
-        JSObject response = new JSObject();
-        response.put("uri", treeUri.toString());
-        response.put("name", documentName(treeUri, DocumentsContract.getTreeDocumentId(treeUri)));
-        response.put("files", listAudioFiles(treeUri));
-        call.resolve(response);
+        try {
+            JSObject response = new JSObject();
+            response.put("uri", treeUri.toString());
+            response.put("name", documentName(treeUri, DocumentsContract.getTreeDocumentId(treeUri)));
+            response.put("files", listAudioFiles(treeUri));
+            call.resolve(response);
+        } catch (Exception error) {
+            call.reject("Não foi possível ler a pasta selecionada. Confira a permissão de acesso.", error);
+        }
     }
 
     @PluginMethod
@@ -88,44 +95,93 @@ public class FolderAccessPlugin extends Plugin {
     }
 
     @PluginMethod
-    public void readFile(PluginCall call) {
+    public void beginReadFile(PluginCall call) {
         String rawUri = call.getString("uri", "");
         if (rawUri.isEmpty()) {
             call.reject("Audio file URI is missing");
             return;
         }
 
-        try (InputStream input = getContext().getContentResolver().openInputStream(Uri.parse(rawUri));
-             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+        try {
+            Uri uri = Uri.parse(rawUri);
+            InputStream input = getContext().getContentResolver().openInputStream(uri);
             if (input == null) {
                 call.reject("The selected audio file is no longer available");
                 return;
             }
-            byte[] buffer = new byte[64 * 1024];
-            int count;
-            while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+            String sessionId = UUID.randomUUID().toString();
+            activeReads.put(sessionId, input);
             JSObject response = new JSObject();
-            response.put("base64", Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP));
+            response.put("sessionId", sessionId);
+            String mimeType = getContext().getContentResolver().getType(uri);
+            response.put("mimeType", mimeType == null ? "" : mimeType);
             call.resolve(response);
         } catch (Exception error) {
             call.reject("Could not read the selected audio file", error);
         }
     }
 
+    @PluginMethod
+    public void readFileChunk(PluginCall call) {
+        String sessionId = call.getString("sessionId", "");
+        InputStream input = activeReads.get(sessionId);
+        if (input == null) {
+            call.reject("Audio read session has expired");
+            return;
+        }
+        try {
+            byte[] buffer = new byte[READ_CHUNK_SIZE];
+            int count = 0;
+            while (count < buffer.length) {
+                int read = input.read(buffer, count, buffer.length - count);
+                if (read < 0) break;
+                count += read;
+            }
+            boolean done = count == 0;
+            JSObject response = new JSObject();
+            response.put("base64", count == 0 ? "" : Base64.encodeToString(buffer, 0, count, Base64.NO_WRAP));
+            response.put("done", done);
+            call.resolve(response);
+            if (done) closeRead(sessionId);
+        } catch (Exception error) {
+            closeRead(sessionId);
+            call.reject("Could not read the selected audio file", error);
+        }
+    }
+
+    @PluginMethod
+    public void closeReadFile(PluginCall call) {
+        closeRead(call.getString("sessionId", ""));
+        call.resolve();
+    }
+
+    private void closeRead(String sessionId) {
+        InputStream input = activeReads.remove(sessionId);
+        if (input == null) return;
+        try { input.close(); } catch (Exception ignored) { }
+    }
+
     private JSArray listAudioFiles(Uri treeUri) {
         List<JSObject> files = new ArrayList<>();
+        List<String> scanErrors = new ArrayList<>();
         try {
             String rootId = DocumentsContract.getTreeDocumentId(treeUri);
-            collectAudioFiles(treeUri, rootId, files);
+            collectAudioFiles(treeUri, rootId, files, new java.util.HashSet<>(), scanErrors);
         } catch (Exception error) {
             android.util.Log.w("FLBFolderAccess", "Could not list audio files in selected folder", error);
+            throw new IllegalStateException("Não foi possível ler esta pasta. Escolha outra pasta de música e permita o acesso.", error);
+        }
+        if (files.isEmpty() && !scanErrors.isEmpty()) {
+            throw new IllegalStateException("O Android não permitiu ler o conteúdo desta pasta. Selecione a pasta novamente e confirme o acesso.");
         }
         JSArray result = new JSArray();
         for (JSObject file : files) result.put(file);
         return result;
     }
 
-    private void collectAudioFiles(Uri treeUri, String parentId, List<JSObject> files) {
+    private void collectAudioFiles(Uri treeUri, String parentId, List<JSObject> files,
+                                   java.util.Set<String> visited, List<String> scanErrors) {
+        if (parentId == null || !visited.add(parentId)) return;
         Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentId);
         String[] columns = {
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -142,13 +198,16 @@ public class FolderAccessPlugin extends Plugin {
             int mimeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE);
             int sizeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE);
             int modifiedColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED);
+            if (idColumn < 0 || nameColumn < 0) {
+                throw new IllegalStateException("O provedor de arquivos não informou os nomes dos arquivos.");
+            }
 
             while (cursor.moveToNext()) {
                 String documentId = cursor.getString(idColumn);
                 String name = nameColumn >= 0 ? cursor.getString(nameColumn) : "";
-                String mime = mimeColumn >= 0 ? cursor.getString(mimeColumn) : "";
+                String mime = mimeColumn >= 0 && !cursor.isNull(mimeColumn) ? cursor.getString(mimeColumn) : "";
                 if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
-                    collectAudioFiles(treeUri, documentId, files);
+                    collectAudioFiles(treeUri, documentId, files, visited, scanErrors);
                 } else if (isAudio(name, mime)) {
                     JSObject item = new JSObject();
                     item.put("uri", DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId).toString());
@@ -161,6 +220,7 @@ public class FolderAccessPlugin extends Plugin {
             }
         } catch (Exception error) {
             android.util.Log.w("FLBFolderAccess", "Could not scan music subfolder " + parentId, error);
+            scanErrors.add(parentId);
         }
     }
 

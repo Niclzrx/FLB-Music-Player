@@ -1,5 +1,19 @@
 <template>
   <div class="home tab scroll_y">
+    <section v-if="isMobileApp" class="mobileHomeWelcome">
+      <div>
+        <p class="mobileHomeEyebrow">FLB MUSIC</p>
+        <h1>{{ t('mobile.home') }}</h1>
+        <p>{{ tabsData.addedTracks.length }} · {{ t('home.tracks') }}</p>
+      </div>
+      <base-button
+        v-if="!tabsData.addedTracks.length"
+        icon="folder-simple-plus"
+        :text="t('onboard.addFolder')"
+        :small="true"
+        @click.native="addMusicFolder"
+      />
+    </section>
     <div v-if="!isMobileApp" class="stats">
       <div class="stats_title">
         <h1>{{ t('home.stats') }}</h1>
@@ -112,6 +126,9 @@ export default {
       const path = tab === "Home" ? "/" : `/${tab}`;
       this.$router.push(path);
     },
+    addMusicFolder() {
+      ipcRenderer.send('addScanFolder', '');
+    },
     async initializeMixes(){
       const playStats = await ipcRenderer.invoke('getPlaybackStats');
       const mixGen = new MixGenerator(
@@ -130,6 +147,20 @@ export default {
 
 <style lang="scss">
 .home {
+  .mobileHomeWelcome {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 14px;
+    padding: 12px;
+    border: 1px solid var(--borderColor);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--secondaryColor) 88%, transparent);
+    h1 { margin: 2px 0 4px; font-size: 20px; }
+    p { margin: 0; font-size: 12px; opacity: .72; }
+    .mobileHomeEyebrow { color: var(--accentColor); font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+  }
   overflow: hidden;
   .stats {
   padding-right: 10px;

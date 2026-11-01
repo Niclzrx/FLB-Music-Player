@@ -47,6 +47,16 @@ public class PartyHostPlugin extends Plugin {
     }
 
     @PluginMethod
+    public synchronized void updateLibrary(PluginCall call) {
+        try {
+            if (server != null) server.updateLibrary(call.getArray("tracks", new JSArray()));
+            call.resolve();
+        } catch (Exception error) {
+            call.reject("Não foi possível atualizar as músicas disponíveis na festa.", error);
+        }
+    }
+
+    @PluginMethod
     public synchronized void stopParty(PluginCall call) {
         if (server != null) server.stop();
         server = null;

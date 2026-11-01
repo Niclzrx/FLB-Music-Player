@@ -1,5 +1,6 @@
 <template>
   <base-button
+    class="multiSelect"
     :title="t('select.multiple')"
     icon="selection-background"
     :text="t('select.select')"

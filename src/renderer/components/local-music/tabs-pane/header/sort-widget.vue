@@ -2,6 +2,7 @@
   <div class="sortWidget actionBt">
     <base-button
       id="sort_toggle_button"
+      class="sortToggleButton"
       icon="sort-ascending"
       :text="t('sort.sort')"
       size="16"

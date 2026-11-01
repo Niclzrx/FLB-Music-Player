@@ -50,6 +50,7 @@ interface PartyManagerStateInterface {
   searchResults: PartyTrackDTOType[];
   searchTotal: number;
   searching: boolean;
+  searchError: string;
   uploading: boolean;
   uploadProgress: number;
   /** Only filled on the machine of the host. */
@@ -80,6 +81,7 @@ const state: PartyManagerStateInterface = {
   searchResults: [],
   searchTotal: 0,
   searching: false,
+  searchError: "",
   uploading: false,
   uploadProgress: 0,
   pendingList: [],
@@ -89,6 +91,8 @@ const state: PartyManagerStateInterface = {
 
 // The live connection of this app when it is a guest of someone else's party
 let eventSource: EventSource | null = null;
+let joinAttemptSequence = 0;
+let trackSearchSequence = 0;
 
 /**
  * A random id that stays the same for this install of the app. It is what
@@ -230,6 +234,7 @@ const mutations = {
     if (item) item.status = payload.status;
   },
   applyQueue(state: PartyManagerStateInterface, payload: PartyQueuePayloadType) {
+    if (state.mode !== "guest" || !state.joinedRoom) return;
     state.queue = payload.queue || [];
     state.nowPlaying = payload.nowPlaying || null;
     state.playing = !!payload.playing;
@@ -246,18 +251,20 @@ const mutations = {
   },
   setSearch(
     state: PartyManagerStateInterface,
-    payload: { query?: string; results?: PartyTrackDTOType[]; total?: number; searching?: boolean }
+    payload: { query?: string; results?: PartyTrackDTOType[]; total?: number; searching?: boolean; error?: string }
   ) {
     if (payload.query !== undefined) state.searchQuery = payload.query;
     if (payload.results !== undefined) state.searchResults = payload.results;
     if (payload.total !== undefined) state.searchTotal = payload.total;
     if (payload.searching !== undefined) state.searching = payload.searching;
+    if (payload.error !== undefined) state.searchError = payload.error;
   },
   setUploading(state: PartyManagerStateInterface, payload: { uploading: boolean; progress?: number }) {
     state.uploading = payload.uploading;
     if (payload.progress !== undefined) state.uploadProgress = payload.progress;
   },
   resetParty(state: PartyManagerStateInterface) {
+    trackSearchSequence += 1;
     state.mode = "none";
     state.hostInfo = null;
     state.guests = [];
@@ -278,6 +285,7 @@ const mutations = {
     state.searchResults = [];
     state.searchTotal = 0;
     state.searching = false;
+    state.searchError = "";
     state.uploading = false;
     state.uploadProgress = 0;
     state.pendingList = [];
@@ -292,50 +300,67 @@ const actions: ActionTree<PartyManagerStateInterface, any> = {
     { commit, rootState },
     payload?: { name?: string; entryMode?: PartyEntryModeType }
   ) {
+    commit("setConnection", { connection: "connecting" });
     const name = String((payload && payload.name) || "").trim().slice(0, 32);
     const entryMode: PartyEntryModeType =
       payload && payload.entryMode === "approval" ? "approval" : "free";
-    const info: PartyHostInfo = await ipcRenderer.invoke("partyStart", {
-      name,
-      entryMode,
-      ...(isMobileApp ? { tracks: rootState.TabsManager.tabsData.addedTracks } : {}),
-    });
-    if (isMobileApp && !info.qrDataUrl) {
-      try {
-        const QRCode = require("qrcode");
-        info.qrDataUrl = await QRCode.toDataURL(`${info.lanUrl}/?code=${info.code}`, {
-          margin: 1,
-          width: 320,
-          color: { dark: "#000000", light: "#ffffff" },
-        });
-      } catch (_) { /* Manual code and host address remain available. */ }
-    }
-    commit("setMode", "host");
-    commit("setHostInfo", info);
-    commit("setPartyRoomName", name || "Festa");
-    commit("setPartyEntryMode", entryMode);
-    commit("setPendingList", []);
-    commit("setBlockedList", []);
-    commit("setJoinedRoom", {
-      code: info.code,
-      hostName: "Você",
-      hostUrl: info.lanUrl,
-    });
-    commit("setConnection", { connection: "connected" });
+    try {
+      const info: PartyHostInfo = await ipcRenderer.invoke("partyStart", {
+        name,
+        entryMode,
+        // Capacitor serializes plugin arguments across the native bridge. Send
+        // only the fields the Android party server needs; TrackType.albumArt
+        // can contain a very large base64 image and used to make room creation
+        // fail before the server could start.
+        ...(isMobileApp ? {
+          tracks: rootState.TabsManager.tabsData.addedTracks.map((track: any) => ({
+            fileLocation: track.fileLocation,
+            defaultTitle: track.defaultTitle || track.title || track.fileName,
+            defaultArtist: track.defaultArtist || track.artist || "",
+            album: track.album || "",
+            formattedLength: track.formattedLength || "",
+            duration: Number(track.duration) || 0,
+          })),
+        } : {}),
+      });
+      if (!info || !info.code || !info.lanUrl) throw new Error("Party server did not return a room address");
+      if (isMobileApp && !info.qrDataUrl) {
+        try {
+          const QRCode = require("qrcode");
+          info.qrDataUrl = await QRCode.toDataURL(`${info.lanUrl}/?code=${info.code}`, {
+            margin: 1,
+            width: 320,
+            color: { dark: "#000000", light: "#ffffff" },
+          });
+        } catch (_) { /* Manual code and host address remain available. */ }
+      }
+      commit("setMode", "host");
+      commit("setHostInfo", info);
+      commit("setPartyRoomName", name || "Festa");
+      commit("setPartyEntryMode", entryMode);
+      commit("setPendingList", []);
+      commit("setBlockedList", []);
+      commit("setGuests", []);
+      commit("setJoinedRoom", { code: info.code, hostName: "Você", hostUrl: info.lanUrl });
+      commit("setConnection", { connection: "connected" });
 
-    // The queue as it is right now goes to the server so the first guest
-    // that arrives does not see an empty screen.
-    const playback = rootState.PlaybackManger;
-    const audio = document.querySelector("audio");
-    ipcRenderer.send("partyQueueUpdate", {
-      queue: playback.customQueue,
-      nowPlaying: playback.playingTrackInfo.track,
-      playing: playback.audioState.playing,
-      position: audio ? audio.currentTime || 0 : 0,
-      duration: audio && audio.duration ? audio.duration : 0,
-      volume: audio ? audio.volume : 1,
-    });
-    return info;
+      // Keep the primary player element first: the transition fade and other
+      // playback code intentionally query the first <audio> in the document.
+      const playback = rootState.PlaybackManger;
+      const audio = document.querySelector("audio");
+      ipcRenderer.send("partyQueueUpdate", {
+        queue: playback.customQueue,
+        nowPlaying: playback.playingTrackInfo.track,
+        playing: playback.audioState.playing,
+        position: audio ? audio.currentTime || 0 : 0,
+        duration: audio && audio.duration ? audio.duration : 0,
+        volume: audio ? audio.volume : 1,
+      });
+      return info;
+    } catch (error) {
+      commit("setConnection", { connection: "error", error: "party.errorCreateTitle" });
+      throw error;
+    }
   },
 
   stopParty({ commit }) {
@@ -349,6 +374,7 @@ const actions: ActionTree<PartyManagerStateInterface, any> = {
     { commit, dispatch },
     payload: { code: string; name: string; hostUrl?: string }
   ) {
+    const attempt = ++joinAttemptSequence;
     const code = String(payload.code || "").replace(/\D/g, "").slice(0, 6);
     const name = String(payload.name || "").trim().slice(0, 24);
     if (code.length !== 6) {
@@ -361,6 +387,7 @@ const actions: ActionTree<PartyManagerStateInterface, any> = {
     }
 
     commit("setConnection", { connection: "connecting" });
+    let requestTimeout: any = null;
     try {
       // The QR code of the host carries its address, the discovery on the
       // network is only the fallback when the code was typed by hand
@@ -368,6 +395,9 @@ const actions: ActionTree<PartyManagerStateInterface, any> = {
       if (hostUrl && !/^https?:\/\//i.test(hostUrl)) hostUrl = `http://${hostUrl}`;
       if (hostUrl) {
         const parsedHost = new URL(hostUrl);
+        if (parsedHost.protocol !== "http:" && parsedHost.protocol !== "https:") {
+          throw new Error("Unsupported room address protocol");
+        }
         if (!parsedHost.port) parsedHost.port = "47831";
         hostUrl = parsedHost.origin;
       }
@@ -379,11 +409,17 @@ const actions: ActionTree<PartyManagerStateInterface, any> = {
         }
         hostUrl = `http://${host.ip}:${host.port}`;
       }
+      const controller = new AbortController();
+      requestTimeout = setTimeout(() => controller.abort(), 7000);
       const response = await fetch(`${hostUrl}/api/session`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, name, deviceToken: deviceToken() }),
+        signal: controller.signal,
       });
+      clearTimeout(requestTimeout);
+      requestTimeout = null;
+      if (attempt !== joinAttemptSequence) return;
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         const errorKey =
@@ -411,11 +447,14 @@ const actions: ActionTree<PartyManagerStateInterface, any> = {
         hostName: data.hostName || "",
         hostUrl,
       });
+      commit("setGuests", []);
       commit("setMode", "guest");
       dispatch("openEventStream");
       dispatch("guestSearchTracks", "");
       commit("setConnection", { connection: "connected" });
     } catch (error) {
+      if (requestTimeout) clearTimeout(requestTimeout);
+      if (attempt !== joinAttemptSequence) return;
       commit("setConnection", { connection: "error", error: "party.errorNotFound" });
     }
   },
@@ -431,15 +470,28 @@ const actions: ActionTree<PartyManagerStateInterface, any> = {
       `${state.joinedRoom.hostUrl}/api/events?guestId=${state.guestId}`
     );
     eventSource = stream;
+    const isCurrentStream = () => eventSource === stream && state.mode === "guest";
+    stream.onopen = () => {
+      if (isCurrentStream()) commit("setConnection", { connection: "connected" });
+    };
 
     stream.addEventListener("queue", (event) => {
+      if (!isCurrentStream()) return;
       try {
         commit("applyQueue", JSON.parse((event as MessageEvent).data));
       } catch (error) {
         // A broken frame is not worth breaking the screen for
       }
     });
+    stream.addEventListener("members", (event) => {
+      if (!isCurrentStream()) return;
+      try {
+        const data = JSON.parse((event as MessageEvent).data);
+        commit("setGuests", Array.isArray(data.guests) ? data.guests : []);
+      } catch (_) { /* Ignore an incomplete roster event and keep the current list. */ }
+    });
     stream.addEventListener("session-ended", () => {
+      if (!isCurrentStream()) return;
       commit("pushNotification", {
         title: "party.endedTitle",
         subTitle: "party.endedSubTitle",
@@ -448,6 +500,7 @@ const actions: ActionTree<PartyManagerStateInterface, any> = {
       dispatch("leaveParty");
     });
     stream.addEventListener("kicked", () => {
+      if (!isCurrentStream()) return;
       commit("pushNotification", {
         title: "party.kickedTitle",
         subTitle: "party.kickedSubTitle",
@@ -484,16 +537,29 @@ const actions: ActionTree<PartyManagerStateInterface, any> = {
       }
     });
     stream.onerror = () => {
-      if (stream.readyState === EventSource.CLOSED) {
-        commit("setConnection", { connection: "error", error: "party.errorLost" });
-      }
+      if (!isCurrentStream()) return;
+      commit("setConnection", {
+        connection: stream.readyState === EventSource.CLOSED ? "error" : "connecting",
+        error: stream.readyState === EventSource.CLOSED ? "party.errorLost" : "",
+      });
     };
+  },
+
+  async reconnectParty({ commit, dispatch, state }) {
+    if (!state.joinedRoom || !state.guestId) {
+      commit("setConnection", { connection: "error", error: "party.errorLost" });
+      return;
+    }
+    commit("setConnection", { connection: "connecting" });
+    dispatch("openEventStream");
+    await dispatch("guestRefreshQueue");
   },
 
   async guestSearchTracks({ commit, state }, query?: string) {
     if (!state.joinedRoom || !state.guestId) return;
+    const requestId = ++trackSearchSequence;
     const search = typeof query === "string" ? query : state.searchQuery;
-    commit("setSearch", { query: search, searching: true });
+    commit("setSearch", { query: search, searching: true, error: "" });
     try {
       const url = `${state.joinedRoom.hostUrl}/api/tracks?q=${encodeURIComponent(
         search
@@ -503,9 +569,11 @@ const actions: ActionTree<PartyManagerStateInterface, any> = {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
-      commit("setSearch", { results: data.tracks, total: data.total, searching: false });
+      if (requestId !== trackSearchSequence) return;
+      commit("setSearch", { results: data.tracks || [], total: data.total || 0, searching: false, error: "" });
     } catch (error) {
-      commit("setSearch", { results: [], total: 0, searching: false });
+      if (requestId !== trackSearchSequence) return;
+      commit("setSearch", { results: [], total: 0, searching: false, error: "party.searchFailed" });
     }
   },
 
@@ -691,6 +759,7 @@ const actions: ActionTree<PartyManagerStateInterface, any> = {
   },
 
   leaveParty({ commit, state }) {
+    joinAttemptSequence += 1;
     if (state.joinedRoom && state.guestId) {
       fetch(`${state.joinedRoom.hostUrl}/api/leave`, {
         method: "POST",

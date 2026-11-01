@@ -1,5 +1,5 @@
 <template>
-  <div class="partyView bg2" :class="{ party_mobile: isMobileApp }">
+  <div :class="['partyView', 'bg2', `party_mode_${mode}`, { party_mobile: isMobileApp }]">
     <!-- ==================== HEADER ==================== -->
     <header class="party_header">
       <img
@@ -13,6 +13,10 @@
       <h1 class="party_title">
         🎉 {{ roomName || t('party.title') }}
       </h1>
+      <span class="party_connectionBadge" :class="`is-${connection}`">
+        <i class="party_statusDot" />
+        {{ connectionLabel }}
+      </span>
       <base-button
         v-if="mode === 'none' || mode === 'host'"
         :text="t('party.end')"
@@ -92,6 +96,7 @@
             class="party_formButton"
             :block="true"
             :text="t('party.create')"
+            :loading="connection === 'connecting'"
             @click.native="createRoom"
           />
           <p class="party_hint weight300">
@@ -145,7 +150,7 @@
         <!-- After a QR reading with a code inside, the code is already
              here and the guest only has to tell its name -->
         <input
-          v-if="isMobileApp && !scannedHost"
+          v-if="!scannedHost"
           v-model="joinHostUrl"
           :placeholder="t('party.hostAddressPlaceholder')"
           type="url"
@@ -154,11 +159,15 @@
         <input
           v-if="!scannedHost || !joinCode"
           v-model="joinCode"
+          @input="parseInviteInput"
           :placeholder="t('party.codePlaceholder')"
           type="text"
-          maxlength="6"
+          maxlength="240"
           class="inputElem party_formControl party_codeInput"
         >
+        <p v-if="!scannedHost" class="party_hint weight300">
+          {{ t('party.joinAddressHint') }}
+        </p>
         <input
           v-model="joinName"
           :placeholder="t('party.namePlaceholder')"
@@ -189,6 +198,13 @@
       class="party_body"
     >
       <aside class="party_roomCard blurred_bg blur20">
+        <div class="party_roomCardHeader">
+          <div>
+            <p class="party_eyebrow">{{ t('party.liveRoom') }}</p>
+            <h2>{{ roomName || t('party.title') }}</h2>
+          </div>
+          <span class="party_liveBadge"><i class="party_statusDot" />{{ t('party.online') }}</span>
+        </div>
         <div class="party_codeRow">
           <p class="party_code">
             {{ hostInfo.code }}
@@ -206,6 +222,19 @@
         <p class="party_hint weight300">
           {{ hostInfo.lanUrl }}
         </p>
+        <div class="party_inviteActions">
+          <base-button
+            :text="copiedAction === 'code' ? t('party.copied') : t('party.copyCode')"
+            :active="copiedAction === 'code'"
+            :block="true"
+            @click.native="copyInvite('code')"
+          />
+          <base-button
+            :text="copiedAction === 'link' ? t('party.copied') : t('party.copyLink')"
+            :block="true"
+            @click.native="copyInvite('link')"
+          />
+        </div>
 
         <!-- Free or approval, the host may switch at any moment -->
         <div class="party_modeToggle">
@@ -223,16 +252,24 @@
           />
         </div>
 
-        <p class="party_sectionTitle">
-          {{ t('party.guests') }}
-        </p>
-        <div class="party_guestChips">
-          <span
+        <div class="party_memberHeading">
+          <p class="party_sectionTitle">{{ t('party.guests') }}</p>
+          <span class="party_memberCount">{{ guests.length + 1 }}</span>
+        </div>
+        <div class="party_memberList">
+          <div class="party_memberRow party_memberHost">
+            <span class="party_avatar">F</span>
+            <span class="party_memberInfo"><strong>{{ t('party.you') }}</strong><small>{{ t('party.host') }}</small></span>
+            <span class="party_memberOnline" :class="{ 'is-connecting': guest.status === 'connecting' }"><i class="party_statusDot" />{{ guest.status === 'connecting' ? t('party.connecting') : t('party.online') }}</span>
+          </div>
+          <div
             v-for="guest in guests"
             :key="guest.id"
-            class="party_guestChip"
+            class="party_memberRow"
           >
-            {{ guest.name }} · {{ guest.addedTracks }} 🎵
+            <span class="party_avatar">{{ (guest.name || '?').charAt(0).toUpperCase() }}</span>
+            <span class="party_memberInfo"><strong>{{ guest.name }}</strong><small>{{ guest.addedTracks }} 🎵</small></span>
+            <span class="party_memberOnline" :class="{ 'is-connecting': guest.status === 'connecting' }"><i class="party_statusDot" />{{ guest.status === 'connecting' ? t('party.connecting') : t('party.online') }}</span>
             <span class="party_chipActions">
               <base-button
                 icon="user-minus"
@@ -249,10 +286,10 @@
                 @click.native="blockGuest(guest)"
               />
             </span>
-          </span>
+          </div>
           <p
             v-if="!guests.length"
-            class="party_hint weight300"
+            class="party_emptyMembers"
           >
             {{ t('party.noGuests') }}
           </p>
@@ -373,6 +410,33 @@
           class="party_list party_scrollable"
         >
           <template v-if="!selectedPlaylist">
+            <input
+              v-model="hostSearch"
+              :placeholder="t('party.hostLibrarySearchPlaceholder')"
+              type="search"
+              class="inputElem mb10"
+            >
+            <template v-if="hostSearch.trim()">
+              <div
+                v-for="track in hostLibraryResults"
+                :key="track.fileLocation"
+                class="party_row party_adminRow"
+              >
+                <img
+                  v-if="track.albumArt"
+                  :src="localArtUrl(track.albumArt)"
+                  class="party_rowArt"
+                  @error="hideBrokenArt"
+                >
+                <div class="party_trackInfo">
+                  <p class="text-small-1">{{ track.defaultTitle || track.title || track.fileName }}</p>
+                  <p class="card_subTitle weight300 text-small-2">{{ track.defaultArtist || track.artist }}</p>
+                </div>
+                <base-button icon="plus" :small="true" @click.native="addFromPlaylist(track)" />
+              </div>
+              <p v-if="!hostLibraryResults.length" class="party_hint weight300">{{ t('party.noResults') }}</p>
+            </template>
+            <template v-else>
             <div
               v-for="playlist in playlists"
               :key="playlist.name"
@@ -398,6 +462,7 @@
             >
               {{ t('party.noPlaylists') }}
             </p>
+            </template>
           </template>
           <template v-else>
             <div class="party_playlistHeader">
@@ -501,10 +566,29 @@
     </section>
 
     <!-- ==================== GUEST: SAME PAGE, PARTY RULES ==================== -->
-    <section
-      v-else-if="mode === 'guest'"
-      class="party_body"
-    >
+    <section v-else-if="mode === 'guest'" class="party_body party_guestBody">
+      <aside class="party_guestOverview">
+        <div class="party_guestRoomStatus blurred_bg blur20">
+          <span class="party_liveBadge"><i class="party_statusDot" />{{ connectionLabel }}</span>
+          <p>{{ t('party.connectedTo', { name: joinedRoom ? joinedRoom.hostName : roomName }) }}</p>
+          <small>{{ joinedRoom ? joinedRoom.hostUrl : '' }}</small>
+        </div>
+        <div class="party_guestMembers blurred_bg blur20">
+          <div class="party_memberHeading">
+            <p class="party_sectionTitle">{{ t('party.guests') }}</p>
+            <span class="party_memberCount">{{ guests.length + 1 }}</span>
+          </div>
+          <div class="party_memberRow party_memberHost">
+            <span class="party_avatar">F</span>
+            <span class="party_memberInfo"><strong>{{ joinedRoom ? joinedRoom.hostName : t('party.host') }}</strong><small>{{ t('party.host') }}</small></span>
+            <span class="party_memberOnline"><i class="party_statusDot" />{{ t('party.online') }}</span>
+          </div>
+          <div v-for="guest in guests" :key="guest.id" class="party_memberRow">
+            <span class="party_avatar">{{ (guest.name || '?').charAt(0).toUpperCase() }}</span>
+            <span class="party_memberInfo"><strong>{{ guest.name }}</strong><small>{{ guest.addedTracks }} 🎵</small></span>
+            <span class="party_memberOnline"><i class="party_statusDot" />{{ t('party.online') }}</span>
+          </div>
+        </div>
       <!-- What is playing on the host, followed live. No controls here. -->
       <div
         v-if="nowPlaying"
@@ -568,7 +652,18 @@
           />
         </div>
       </div>
+      </aside>
 
+      <main class="party_guestMain">
+      <div v-if="connection === 'error' || connection === 'connecting'" class="party_connectionNotice" :class="`is-${connection}`">
+        <span>{{ connection === 'connecting' ? t('party.reconnecting') : t(connectionError || 'party.errorLost') }}</span>
+        <base-button
+          :text="t('party.reconnect')"
+          :small="true"
+          :loading="connection === 'connecting'"
+          @click.native="reconnectParty"
+        />
+      </div>
       <div class="party_tabs">
         <base-button
           :text="t('party.tabQueue')"
@@ -683,10 +778,9 @@
               @click.native="addTrack(track)"
             />
           </div>
-          <p
-            v-if="!searchResults.length"
-            class="party_hint weight300"
-          >
+          <p v-if="searching" class="party_hint weight300">{{ t('party.searchingTracks') }}</p>
+          <p v-else-if="searchError" class="party_hint weight300 party_error">{{ t(searchError) }}</p>
+          <p v-else-if="!searchResults.length" class="party_hint weight300">
             {{ t('party.noResults') }}
           </p>
         </template>
@@ -742,6 +836,7 @@
           </div>
         </template>
       </div>
+      </main>
     </section>
   </div>
 </template>
@@ -779,8 +874,11 @@ export default {
       localSearch: '',
       selectedPlaylist: null,
       searchInput: '',
+      hostSearch: '',
       searchTimer: null,
       showBlocked: false,
+      copiedAction: '',
+      copyFeedbackTimer: null,
       pendingLimit: PARTY_PENDING_LIMIT,
       // Keeps the mirrored progress bar moving between two updates
       clock: Date.now()
@@ -844,6 +942,21 @@ export default {
     searchResults() {
       return this.$store.state.PartyManager.searchResults;
     },
+    searching() {
+      return this.$store.state.PartyManager.searching;
+    },
+    searchError() {
+      return this.$store.state.PartyManager.searchError;
+    },
+    hostLibraryResults() {
+      const query = this.hostSearch.trim().toLocaleLowerCase();
+      const library = this.$store.state.TabsManager.tabsData.addedTracks || [];
+      if (!query) return [];
+      return library.filter((track) => {
+        const text = `${track.defaultTitle || track.title || track.fileName || ''} ${track.defaultArtist || track.artist || ''} ${track.album || ''}`;
+        return text.toLocaleLowerCase().includes(query);
+      }).slice(0, 80);
+    },
     /**
      * The music of this machine, filtered as the guest types. Only the
      * first matches are shown, the search does the narrowing.
@@ -863,6 +976,13 @@ export default {
     },
     uploading() {
       return this.$store.state.PartyManager.uploading;
+    },
+    connectionLabel() {
+      if (this.connection === 'connecting') return this.t('party.connecting');
+      if (this.connection === 'error') return this.t(this.connectionError || 'party.errorLost');
+      return this.mode === 'host' || this.mode === 'guest'
+        ? this.t('party.online')
+        : this.t('party.ready');
     },
     uploadProgress() {
       return this.$store.state.PartyManager.uploadProgress;
@@ -910,10 +1030,11 @@ export default {
   },
   beforeDestroy() {
     clearInterval(this.clockTimer);
+    clearTimeout(this.copyFeedbackTimer);
     this.stopScanner();
   },
   methods: {
-    ...mapMutations(['setPlayingTrack', 'removeTrackFromCustomQueue', 'queueTracksFromGuest']),
+    ...mapMutations(['setPlayingTrack', 'removeTrackFromCustomQueue', 'queueTracksFromGuest', 'pushNotification']),
     goBackToMusic() {
       this.$store.commit('UIcontrollerSetPropertyValue', {
         property: 'currentPage',
@@ -921,20 +1042,22 @@ export default {
       });
     },
     createRoom() {
+      if (this.connection === 'connecting') return;
       this.$store
         .dispatch('createParty', {
           name: this.newPartyName,
           entryMode: this.newEntryMode
         })
-        .catch(() => {
+        .catch((error) => {
           this.pushNotification({
             title: this.t('party.errorCreateTitle'),
-            subTitle: '',
+            subTitle: error && error.message ? error.message : '',
             type: 'danger'
           });
         });
     },
     joinRoom() {
+      if (this.connection === 'connecting') return;
       this.$store.dispatch('joinParty', {
         code: this.joinCode,
         name: this.joinName,
@@ -943,12 +1066,62 @@ export default {
         hostUrl: this.scannedHost || this.joinHostUrl
       });
     },
+    parseInviteInput() {
+      const value = String(this.joinCode || '').trim();
+      if (!/^https?:\/\//i.test(value)) return;
+      try {
+        const invite = new URL(value);
+        const code = String(invite.searchParams.get('code') || '').replace(/\D/g, '').slice(0, 6);
+        if (code.length !== 6) return;
+        this.joinCode = code;
+        this.joinHostUrl = `${invite.protocol}//${invite.host}`;
+      } catch (_) { /* Keep the text so the user can correct an invalid invite. */ }
+    },
+    reconnectParty() {
+      this.$store.dispatch('reconnectParty');
+    },
+    async copyInvite(kind) {
+      if (!this.hostInfo) return;
+      const invite = `${this.hostInfo.lanUrl}/?code=${this.hostInfo.code}`;
+      const value = kind === 'code' ? this.hostInfo.code : invite;
+      let copied = false;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(value);
+          copied = true;
+        }
+      } catch (_) { /* Use the clipboard fallback for older WebViews. */ }
+      if (!copied) {
+        const field = document.createElement('textarea');
+        field.value = value;
+        field.setAttribute('readonly', '');
+        field.style.position = 'fixed';
+        field.style.opacity = '0';
+        document.body.appendChild(field);
+        field.select();
+        try { copied = document.execCommand('copy'); } catch (_) { copied = false; }
+        field.remove();
+      }
+      if (copied) {
+        this.copiedAction = kind;
+        clearTimeout(this.copyFeedbackTimer);
+        this.copyFeedbackTimer = setTimeout(() => { this.copiedAction = ''; }, 1800);
+      } else {
+        this.pushNotification({
+          title: this.t('party.copyFailed'),
+          subTitle: value,
+          type: 'warning'
+        });
+      }
+    },
     endParty() {
       this.$store.dispatch('stopParty');
+      this.pushNotification({ title: this.t('party.endedLocalTitle'), subTitle: '', type: 'success' });
       this.goBackToMusic();
     },
     leaveRoom() {
       this.$store.dispatch('leaveParty');
+      this.pushNotification({ title: this.t('party.leftTitle'), subTitle: '', type: 'success' });
       this.goBackToMusic();
     },
     // -----------------------------------------------------------------
@@ -1146,6 +1319,12 @@ export default {
 
 <style lang="scss">
 .partyView {
+  --party-cyan: #46e5f5;
+  --party-lime: #b8ff70;
+  --party-card: rgba(11, 21, 30, 0.78);
+  --party-line: rgba(106, 225, 241, 0.18);
+  position: relative;
+  isolation: isolate;
   width: 100%;
   height: 100%;
   display: flex;
@@ -1153,13 +1332,34 @@ export default {
   padding: 15px 25px;
   box-sizing: border-box;
   overflow: hidden;
+  color: #edf8fb;
+  background:
+    radial-gradient(ellipse at 14% 0%, rgba(0, 205, 229, .13), transparent 36%),
+    radial-gradient(ellipse at 90% 100%, rgba(31, 111, 255, .12), transparent 38%),
+    #070b10 !important;
+
+  &::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: 0;
+    pointer-events: none;
+    opacity: .22;
+    background-image: linear-gradient(rgba(90, 220, 240, .025) 1px, transparent 1px), linear-gradient(90deg, rgba(90, 220, 240, .025) 1px, transparent 1px);
+    background-size: 34px 34px;
+    mask-image: linear-gradient(to bottom, black, transparent 88%);
+  }
 
   .party_header {
+    flex: 0 0 auto;
+    min-height: 58px;
+    padding: 0 4px 12px;
+    border-bottom: 1px solid var(--party-line);
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    margin-bottom: 15px;
+    margin-bottom: 18px;
   }
   .party_backIcon {
     width: 30px;
@@ -1201,7 +1401,11 @@ export default {
     width: 35px;
   }
   .party_title {
-    font-size: 1.2rem;
+    margin: 0 auto 0 8px;
+    color: #f4fcff;
+    font-size: clamp(1.05rem, 2vw, 1.35rem);
+    font-weight: 750;
+    letter-spacing: .02em;
   }
   .party_hiddenAction {
     visibility: hidden;
@@ -1210,6 +1414,7 @@ export default {
     font-size: 0.85rem;
     text-align: center;
     opacity: 0.75;
+    overflow-wrap: anywhere;
   }
   .party_error {
     color: crimson;
@@ -1235,7 +1440,7 @@ export default {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    max-width: 440px;
+    max-width: 520px;
     margin: 0 auto;
     width: 100%;
   }
@@ -1243,12 +1448,15 @@ export default {
     box-sizing: border-box;
     width: 100%;
     padding: 20px;
-    border: 1px solid var(--borderColor);
+    border: 1px solid var(--party-line);
     border-radius: 22px;
     display: flex;
     flex-direction: column;
     align-items: stretch;
     gap: 10px;
+    background: var(--party-card);
+    box-shadow: 0 22px 65px rgba(0, 0, 0, .35), inset 0 1px rgba(255,255,255,.035);
+    backdrop-filter: blur(22px);
   }
   .party_formCard h2 {
     margin: 0 0 4px;
@@ -1293,9 +1501,12 @@ export default {
 
   .party_body {
     flex: 1;
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(270px, 340px) minmax(0, 1fr);
     gap: 20px;
     min-height: 0;
+    min-width: 0;
+    overflow: hidden;
   }
   .party_main {
     flex: 1;
@@ -1306,15 +1517,18 @@ export default {
   }
 
   .party_roomCard {
-    width: 320px;
-    flex-shrink: 0;
-    border-radius: 20px;
+    width: auto;
+    min-width: 0;
+    border: 1px solid var(--party-line);
+    border-radius: 22px;
     padding: 20px;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 8px;
     overflow-y: auto;
+    background: var(--party-card);
+    box-shadow: inset 0 1px rgba(255,255,255,.04), 0 18px 45px rgba(0,0,0,.25);
   }
   .party_codeRow {
     display: flex;
@@ -1375,8 +1589,11 @@ export default {
   }
   .party_list {
     flex: 1;
+    min-width: 0;
     overflow-y: auto;
     border-radius: 15px;
+    padding: 5px;
+    background: rgba(4, 10, 15, .35);
   }
   .party_scrollable {
     margin-top: 5px;
@@ -1394,6 +1611,8 @@ export default {
     display: flex;
     align-items: center;
     gap: 12px;
+    box-sizing: border-box;
+    min-width: 0;
     padding: 10px 12px;
     border-radius: 12px;
     p {
@@ -1523,6 +1742,82 @@ export default {
       transition: width 0.2s ease;
     }
   }
+  .party_connectionBadge,
+  .party_liveBadge,
+  .party_memberOnline {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    width: fit-content;
+    border: 1px solid rgba(70,229,245,.18);
+    border-radius: 999px;
+    padding: 6px 10px;
+    background: rgba(70,229,245,.07);
+    color: var(--party-cyan);
+    font-size: .72rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .party_connectionBadge { margin-left: auto; }
+  .party_connectionBadge.is-error,
+  .party_connectionNotice.is-error { color: #ff8b9b; border-color: rgba(255,100,120,.3); background: rgba(255,70,100,.08); }
+  .party_connectionBadge.is-connecting,
+  .party_connectionNotice.is-connecting { color: #ffd979; border-color: rgba(255,217,121,.3); }
+  .party_statusDot { width: 7px; height: 7px; border-radius: 50%; background: var(--party-lime); box-shadow: 0 0 10px rgba(184,255,112,.8); }
+  .party_liveBadge { color: var(--party-lime); border-color: rgba(184,255,112,.2); background: rgba(184,255,112,.06); }
+  .party_eyebrow { margin: 0 0 4px; color: var(--party-cyan); font-size: .66rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+  .party_roomCardHeader { width: 100%; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .party_roomCardHeader h2 { margin: 0; font-size: 1.15rem; }
+  .party_inviteActions { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .party_memberHeading { width: 100%; display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .party_memberHeading .party_sectionTitle { margin: 0; }
+  .party_memberCount { min-width: 22px; padding: 2px 6px; border-radius: 999px; text-align: center; color: var(--party-cyan); background: rgba(70,229,245,.1); font-size: .72rem; }
+  .party_memberList { width: 100%; display: flex; flex-direction: column; gap: 7px; }
+  .party_memberRow { display: flex; align-items: center; min-width: 0; gap: 9px; padding: 8px; border: 1px solid rgba(255,255,255,.055); border-radius: 13px; background: rgba(255,255,255,.025); }
+  .party_memberHost { border-color: rgba(70,229,245,.18); background: rgba(70,229,245,.045); }
+  .party_avatar { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; border-radius: 11px; background: linear-gradient(145deg, rgba(70,229,245,.25), rgba(40,90,120,.22)); color: var(--party-cyan); font-weight: 800; }
+  .party_memberInfo { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+  .party_memberInfo strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .85rem; }
+  .party_memberInfo small { opacity: .62; font-size: .7rem; }
+  .party_memberOnline { padding: 4px 6px; border: 0; background: transparent; font-size: .66rem; }
+  .party_memberOnline.is-connecting { color: #ffd979; }
+  .party_memberOnline.is-connecting .party_statusDot { background: #ffd979; box-shadow: 0 0 10px rgba(255,217,121,.65); }
+  .party_memberOnline .party_statusDot { width: 6px; height: 6px; }
+  .party_emptyMembers { margin: 2px 0; padding: 10px; border: 1px dashed var(--party-line); border-radius: 12px; color: rgba(237,248,251,.6); text-align: center; font-size: .78rem; }
+  .party_guestBody { grid-template-columns: minmax(260px, 380px) minmax(0, 1fr); }
+  .party_guestOverview { min-width: 0; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+  .party_guestRoomStatus { padding: 14px; border: 1px solid var(--party-line); border-radius: 18px; background: var(--party-card); }
+  .party_guestMembers { padding: 12px; border: 1px solid var(--party-line); border-radius: 18px; background: var(--party-card); }
+  .party_guestRoomStatus p { margin: 10px 0 3px; font-weight: 650; }
+  .party_guestRoomStatus small { display: block; overflow-wrap: anywhere; opacity: .55; font-size: .7rem; }
+  .party_guestMain { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .party_connectionNotice { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; padding: 10px 12px; border: 1px solid rgba(255,217,121,.25); border-radius: 14px; color: #ffd979; background: rgba(255,217,121,.06); font-size: .82rem; }
+  &.party_mode_guest {
+    .party_nowPlayingCard { margin: 0; box-shadow: 0 15px 45px rgba(0,0,0,.24); }
+    .party_nowInfo { min-width: 0; }
+    .party_progressTrack div { background: linear-gradient(90deg, #39cde9, #a2f8ff); box-shadow: 0 0 12px rgba(70,229,245,.5); }
+    .party_tabs { flex: 0 0 auto; padding-bottom: 9px; border-bottom: 1px solid var(--party-line); }
+    .party_list { flex: 1 1 auto; min-height: 0; max-height: none; }
+    .party_row { border: 1px solid transparent; transition: background .16s, border-color .16s; }
+    .party_row:hover { border-color: var(--party-line); background: rgba(70,229,245,.055); }
+    .party_rowArt,
+    .party_nowArt { border: 1px solid rgba(70,229,245,.2); }
+  }
+  .party_roomCard .party_code { color: #f5fdff; text-shadow: 0 0 24px rgba(70,229,245,.26); }
+  .party_roomCard .party_qr { box-shadow: 0 0 25px rgba(70,229,245,.12); }
+  .party_guestMain .party_tabs > button,
+  .party_roomCard button,
+  .party_start button { border: 1px solid rgba(70,229,245,.14); transition: .18s ease; }
+  .party_guestMain .party_tabs > button.activeBtn,
+  .party_roomCard button.activeBtn,
+  .party_start button.activeBtn { border-color: rgba(70,229,245,.5); box-shadow: 0 0 20px rgba(70,229,245,.1); }
+  /* Keep the original, simple create/join card until a room is opened. */
+  &.party_mode_none .party_formCard {
+    border-color: var(--borderColor);
+    background: color-mix(in srgb, var(--secondaryColor) 90%, transparent);
+    box-shadow: none;
+    backdrop-filter: blur(20px);
+  }
   &.party_mobile {
     .party_start {
       justify-content: flex-start;
@@ -1577,5 +1872,47 @@ export default {
     .party_formModes { gap: 8px; }
     .party_formModes > * { font-size: 12px; }
   }
+}
+
+@media (min-width: 601px) {
+  .partyView.party_mobile .party_body { display: grid; grid-template-columns: minmax(270px, 340px) minmax(0, 1fr); overflow: hidden; }
+  .partyView.party_mobile .party_guestBody { grid-template-columns: minmax(260px, 380px) minmax(0, 1fr); }
+  .partyView.party_mobile .party_roomCard,
+  .partyView.party_mobile .party_main,
+  .partyView.party_mobile .party_guestOverview,
+  .partyView.party_mobile .party_guestMain { width: auto; min-width: 0; max-width: none; }
+  .partyView.party_mobile .party_main { flex: initial; min-height: 0; }
+  .partyView.party_mobile .party_list { max-height: none; }
+  .partyView.party_mobile .party_nowPlayingCard { padding: 12px; margin: 0; }
+}
+
+@media (max-width: 980px) {
+  .partyView .party_body { grid-template-columns: minmax(0, 1fr); overflow-y: auto; overflow-x: hidden; }
+  .partyView .party_guestBody { grid-template-columns: minmax(0, 1fr); }
+  .partyView .party_guestOverview { overflow: visible; }
+  .partyView .party_guestMain { min-height: 340px; }
+}
+
+@media (max-width: 600px) {
+  .partyView { padding: 10px 5px calc(75px + env(safe-area-inset-bottom)); }
+  .partyView .party_header { min-height: 48px; gap: 6px; margin-bottom: 12px; padding-bottom: 8px; }
+  .partyView .party_headerSpacer { width: 20px; }
+  .partyView .party_title { font-size: 1rem; }
+  .partyView .party_connectionBadge { padding: 5px 7px; font-size: .62rem; }
+  .partyView .party_body { gap: 12px; padding-bottom: 4px; }
+  .partyView .party_roomCard { padding: 12px; border-radius: 17px; }
+  .partyView .party_guestMain { min-height: 270px; }
+  .partyView .party_nowPlayingCard,
+  .partyView.party_mobile .party_nowPlayingCard { gap: 10px; padding: 10px; margin: 0; border-radius: 17px; }
+  .partyView .party_nowArt { width: 72px; height: 72px; }
+  .partyView .party_inviteActions { grid-template-columns: minmax(0, 1fr); }
+  .partyView .party_modeToggle { width: 100%; }
+  .partyView .party_modeToggle > * { flex: 1 1 0; }
+  .partyView .party_code { font-size: 2.15rem; letter-spacing: .22em; padding-left: .22em; }
+  .partyView .party_guestRoomStatus { padding: 11px; }
+  .partyView .party_guestMembers { padding: 9px; }
+  .partyView .party_row { gap: 8px; padding: 8px; }
+  .partyView .party_rowArt { width: 38px; height: 38px; }
+  .partyView .party_memberOnline { display: none; }
 }
 </style>

@@ -338,12 +338,23 @@ export class PartyServer {
 
   private lanAddress(): string {
     const interfaces = os.networkInterfaces();
+    const candidates: Array<{ address: string; score: number }> = [];
     for (const name of Object.keys(interfaces)) {
+      const normalizedName = name.toLowerCase();
+      const isVirtual = /vpn|virtual|vmware|virtualbox|vbox|hyper-v|wsl|bridge|loopback|bluetooth|tailscale|zerotier|wireguard|tap|tun/.test(normalizedName);
+      const isWifi = /wi.?fi|wlan|wireless/.test(normalizedName);
+      const isEthernet = /ethernet|^eth|lan/.test(normalizedName);
       for (const entry of interfaces[name] || []) {
-        if (entry.family === "IPv4" && !entry.internal) return entry.address;
+        if (entry.family !== "IPv4" || entry.internal || entry.address.startsWith("169.254.")) continue;
+        const octets = entry.address.split(".").map(Number);
+        if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) continue;
+        const isPrivate = octets[0] === 10 || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] === 192 && octets[1] === 168);
+        const score = (isVirtual ? 100 : 0) + (isWifi ? 0 : isEthernet ? 5 : 20) + (isPrivate ? 0 : 10);
+        candidates.push({ address: entry.address, score });
       }
     }
-    return "127.0.0.1";
+    candidates.sort((left, right) => left.score - right.score);
+    return candidates.length ? candidates[0].address : "127.0.0.1";
   }
 
   private lanUrl(): string {
@@ -856,9 +867,11 @@ export class PartyServer {
     const client: SseClient = { response: res, guestId: guest.id };
     this.sseClients.add(client);
     guest.streaming = true;
+    this.broadcastGuests();
 
     // The current state goes out right away so the screen is not empty.
     res.write(`event: queue\ndata: ${JSON.stringify(this.queuePayload())}\n\n`);
+    res.write(`event: members\ndata: ${JSON.stringify({ guests: this.guestList() })}\n\n`);
 
     req.on("close", () => {
       this.sseClients.delete(client);
@@ -866,6 +879,7 @@ export class PartyServer {
       if (stillHere) {
         stillHere.streaming = false;
         stillHere.lastSeenAt = Date.now();
+        this.broadcastGuests();
       }
     });
   }
@@ -997,15 +1011,21 @@ export class PartyServer {
   }
 
   private broadcastGuests() {
-    const guests = this.session
+    const guests = this.guestList();
+    this.callbacks.notifyRenderer("partyGuestsUpdate", guests);
+    this.broadcastToSse("members", { guests });
+  }
+
+  private guestList() {
+    return this.session
       ? this.session.getGuests().map((guest) => ({
           id: guest.id,
           name: guest.name,
           addedTracks: guest.addedTracks,
           joinedAt: guest.joinedAt,
+          status: guest.streaming ? "online" : "connecting",
         }))
       : [];
-    this.callbacks.notifyRenderer("partyGuestsUpdate", guests);
   }
 }
 

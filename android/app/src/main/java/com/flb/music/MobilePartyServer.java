@@ -42,7 +42,7 @@ final class MobilePartyServer {
     private static final int PORT = 47831;
     private static final int MAX_BODY = 60 * 1024 * 1024;
     private final BiConsumer<String, JSONObject> emit;
-    private final JSONArray tracks = new JSONArray();
+    private volatile JSONArray tracks = new JSONArray();
     private final Map<String, Guest> guests = new ConcurrentHashMap<>();
     private final Map<String, Pending> pending = new ConcurrentHashMap<>();
     private final Map<String, String> blocked = new ConcurrentHashMap<>();
@@ -67,7 +67,7 @@ final class MobilePartyServer {
         this.entryMode = "approval".equals(mode) ? "approval" : "free";
         SecureRandom random = new SecureRandom();
         this.code = String.format(Locale.US, "%06d", 100000 + random.nextInt(900000));
-        if (library != null) for (int i = 0; i < library.length(); i++) tracks.put(library.getJSONObject(i));
+        updateLibrary(library);
         snapshot.put("queue", new JSONArray());
         snapshot.put("playing", false);
         snapshot.put("position", 0);
@@ -116,6 +116,14 @@ final class MobilePartyServer {
     void updateQueue(JSONObject value) {
         snapshot = value == null ? new SafeJson() : value;
         broadcast("queue", queuePayload());
+    }
+
+    void updateLibrary(JSArray library) throws Exception {
+        JSONArray updated = new JSONArray();
+        if (library != null) {
+            for (int i = 0; i < library.length(); i++) updated.put(library.getJSONObject(i));
+        }
+        tracks = updated;
     }
 
     void setEntryMode(String mode) {
@@ -412,11 +420,14 @@ final class MobilePartyServer {
     private void events(Socket socket, String guestId) throws Exception {
         Guest guest = authenticated(guestId);
         if (guest == null) { sendJson(socket, 401, new SafeJson().putValue("error", "invalid_guest")); return; }
+        guest.connected = true;
         OutputStream output = socket.getOutputStream();
         writeHeaders(output, 200, "text/event-stream; charset=utf-8", -1, true);
         SseClient client = new SseClient(guest.id, socket, output);
         sseClients.add(client);
+        emitGuests();
         client.send("queue", queuePayload());
+        client.send("members", new SafeJson().putValue("guests", guestList()));
         try {
             while (isRunning() && !socket.isClosed()) {
                 Thread.sleep(15000);
@@ -425,6 +436,8 @@ final class MobilePartyServer {
         } catch (Exception ignored) {
         } finally {
             sseClients.remove(client);
+            guest.connected = false;
+            emitGuests();
             try { socket.close(); } catch (Exception ignored) { }
         }
     }
@@ -449,11 +462,18 @@ final class MobilePartyServer {
     }
 
     private void emitGuests() {
+        JSONArray result = guestList();
+        this.emit.accept("partyGuestsUpdate", new SafeJson().putValue("guests", result));
+        broadcast("members", new SafeJson().putValue("guests", result));
+    }
+
+    private JSONArray guestList() {
         JSONArray result = new JSONArray();
         for (Guest guest : guests.values()) result.put(new SafeJson()
             .putValue("id", guest.id).putValue("name", guest.name)
-            .putValue("addedTracks", guest.addedTracks).putValue("joinedAt", guest.joinedAt));
-        this.emit.accept("partyGuestsUpdate", new SafeJson().putValue("guests", result));
+            .putValue("addedTracks", guest.addedTracks).putValue("joinedAt", guest.joinedAt)
+            .putValue("status", guest.connected ? "online" : "connecting"));
+        return result;
     }
 
     private void emitPending() {
@@ -631,6 +651,7 @@ final class MobilePartyServer {
         final java.util.Set<String> trackIds = Collections.newSetFromMap(new ConcurrentHashMap<>());
         volatile long lastSeenAt = joinedAt;
         volatile int addedTracks = 0;
+        volatile boolean connected = false;
         Guest(String id, String name, String token) { this.id = id; this.name = name; this.deviceToken = token; }
     }
 
