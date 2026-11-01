@@ -19,7 +19,7 @@
 
 <script lang="js">
 import { mapMutations } from 'vuex';
-import { ipcRenderer } from 'electron';
+import { ipcRenderer } from '@/platform/ipc';
 
 export default {
   name: 'TabSwitcher',

@@ -13,7 +13,7 @@
       <section>
         <article class="bg1">
           <h4>{{ t('settings.library') }}</h4>
-          <div class="folderBoxWrapper">
+          <div v-if="!isMobileApp" class="folderBoxWrapper">
             <div
               v-for="folder in settings.foldersToScan"
               :key="folder"
@@ -33,14 +33,18 @@
               />
             </div>
           </div>
+          <p v-if="isMobileApp" class="mobileLibraryHint">
+            {{ t('onboard.mobileHint') }}
+          </p>
           <div class="uselessWrapper">
             <base-button
-              :text="t('settings.addFolder')"
+              :text="isMobileApp ? t('settings.addMusic') : t('settings.addFolder')"
               :block="true"
               :active="true"
               @click.native="addFolder"
             />
             <base-button
+              v-if="!isMobileApp"
               :text="t('settings.repairCovers')"
               :block="true"
               @click.native="repairCovers"
@@ -208,6 +212,7 @@
 
         <div class="switchList">
           <div
+            v-if="!isMobileApp"
             :class="[
               settings.desktopNotifications ? 'activeBtn' : '',
               'switch bg1',
@@ -222,6 +227,7 @@
             <p>{{ t('settings.notifications') }}</p>
           </div>
           <div
+            v-if="!isMobileApp"
             :class="[settings.videoSupport ? 'activeBtn' : '', 'switch bg1']"
             @click="toggleVideoSupport"
           >
@@ -237,7 +243,7 @@
       </section>
       <section>
         <div class="grid2 gap10 pa10">
-          <div class="switch bg1" @click="checkForUpdate">
+          <div v-if="!isMobileApp" class="switch bg1" @click="checkForUpdate">
             <p>{{ t('settings.checkForUpdate') }}</p>
           </div>
           <div class="switch bg1">
@@ -252,7 +258,7 @@
             <p>{{ t('settings.reportBug') }}</p>
           </div>
         </div>
-        <article class="bg1">
+        <article v-if="!isMobileApp" class="bg1">
           <h3 class="mb5">{{ t('settings.shortcuts') }}</h3>
           <div class="pb5 mb5 border_split">
             <p class="text-small-0">{{ t('settings.shortcuts.play') }}</p>
@@ -306,7 +312,7 @@
 <script>
 import { sendMessageToNode } from "@/renderer/utils/index";
 import { mapMutations, mapActions } from "vuex";
-import { ipcRenderer } from "electron";
+import { ipcRenderer, isMobileApp } from "@/platform/ipc";
 import { availableLanguages } from "@/renderer/i18n";
 
 export default {
@@ -534,6 +540,12 @@ export default {
         }
       }
     }
+  }
+  .Settings .mobileLibraryHint {
+    margin: 0 4px 14px;
+    font-size: 13px;
+    line-height: 1.45;
+    opacity: .78;
   }
   h1 {
     text-align: center;

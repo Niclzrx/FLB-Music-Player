@@ -1,4 +1,4 @@
-import { ipcRenderer } from "electron";
+import { ipcRenderer, readTrackBlob } from "@/platform/ipc";
 import { ActionTree } from "vuex";
 import {
   PartyBlockedInfoType,
@@ -354,6 +354,12 @@ const actions: ActionTree<PartyManagerStateInterface, any> = {
       // The QR code of the host carries its address, the discovery on the
       // network is only the fallback when the code was typed by hand
       let hostUrl = String(payload.hostUrl || "").trim();
+      if (hostUrl && !/^https?:\/\//i.test(hostUrl)) hostUrl = `http://${hostUrl}`;
+      if (hostUrl) {
+        const parsedHost = new URL(hostUrl);
+        if (!parsedHost.port) parsedHost.port = "47831";
+        hostUrl = parsedHost.origin;
+      }
       if (!hostUrl) {
         const host = await ipcRenderer.invoke("partyDiscover");
         if (!host) {
@@ -607,12 +613,9 @@ const actions: ActionTree<PartyManagerStateInterface, any> = {
     if (!filePath) return;
     commit("setUploading", { uploading: true, progress: 0 });
     try {
-      // The renderer has node integration, the file is read right here
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const fs = require("fs");
-      const raw: Buffer = await fs.promises.readFile(filePath);
-      const blob = new Blob([new Uint8Array(raw)]);
-      const fileName = filePath.split(/[\\/]/).pop() || "track.mp3";
+      const blob = await readTrackBlob(filePath);
+      if (!blob) throw new Error("missing_track_file");
+      const fileName = track.fileName || filePath.split(/[\\/]/).pop() || "track.mp3";
 
       const result = await uploadBlobToHost(
         state.joinedRoom,

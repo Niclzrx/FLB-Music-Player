@@ -17,6 +17,7 @@
     "build": "vue-cli-service electron:build",
     "build:mobile": "node mobile/build.mjs",
     "android:sync": "npm run build:mobile && cap sync android",
+    "android:apk": "npm run android:sync && node mobile/build-apk.mjs",
     "android:open": "cap open android",
     "push-update": "vue-cli-service electron:build -- -p always",
     "deploy-steps": "git commit -am v1.2.1 && git tag v1.2.1 && git push --tags"

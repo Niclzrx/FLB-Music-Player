@@ -1,4 +1,4 @@
-import { ipcRenderer } from 'electron';
+import { ipcRenderer, isMobileApp } from '@/platform/ipc';
 import { fromString } from 'css-color-converter';
 
 const brightnessThreshold = 0.69;
@@ -16,6 +16,9 @@ export function sendMessageToNode (message: string, payload: any) {
 export function toFileUrl (filePath: string) {
   if (!filePath) return '';
   if (/^(https?|file|blob|data):/i.test(filePath)) return filePath;
+  if (isMobileApp && filePath.startsWith('flb-media://')) {
+    return (window as any).__FLB_MEDIA_URLS__?.[filePath] || '';
+  }
   let normalized = filePath.replace(/\\/g, '/');
   if (!normalized.startsWith('/')) normalized = `/${normalized}`;
   return `file://${encodeURI(normalized)

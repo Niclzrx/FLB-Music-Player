@@ -59,7 +59,7 @@
 <script>
 import { mapMutations } from "vuex";
 import { MixGenerator } from "@/renderer/utils/mix-generator";
-import {ipcRenderer} from 'electron'
+import {ipcRenderer} from '@/platform/ipc'
 export default {
   name: "HomeTab",
 

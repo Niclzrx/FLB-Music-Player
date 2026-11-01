@@ -37,12 +37,13 @@
       <!-- The two doors: open a party or walk into one -->
       <template v-if="startChoice === 'menu'">
         <base-button
+          v-if="!isMobileApp"
           :block="true"
           :text="t('party.create')"
           icon="plus"
           @click.native="startChoice = 'create'"
         />
-        <div class="party_divider" />
+        <div v-if="!isMobileApp" class="party_divider" />
         <base-button
           :block="true"
           :text="t('party.join')"
@@ -134,6 +135,13 @@
         </div>
         <!-- After a QR reading with a code inside, the code is already
              here and the guest only has to tell its name -->
+        <input
+          v-if="isMobileApp && !scannedHost"
+          v-model="joinHostUrl"
+          :placeholder="t('party.hostAddressPlaceholder')"
+          type="url"
+          class="inputElem mb10"
+        >
         <input
           v-if="!scannedHost || !joinCode"
           v-model="joinCode"
@@ -721,7 +729,7 @@
 </template>
 
 <script>
-import { ipcRenderer } from 'electron';
+import { ipcRenderer, isMobileApp } from '@/platform/ipc';
 import jsQR from 'jsqr';
 import { mapMutations } from 'vuex';
 import { toFileUrl } from '@/renderer/utils';
@@ -732,12 +740,13 @@ export default {
   data() {
     return {
       // Landing: two doors, create a party or walk into one
-      startChoice: 'menu',
+      startChoice: isMobileApp ? 'join' : 'menu',
       // Creating a new party
       newPartyName: '',
       newEntryMode: 'free',
       // Joining someone else's party
       joinCode: '',
+      joinHostUrl: '',
       // The name is remembered from the last party, a returning guest
       // only has to scan the QR and press enter
       joinName: localStorage.getItem('flbPartyGuestName') || '',
@@ -913,7 +922,7 @@ export default {
         name: this.joinName,
         // When the QR code of the host was read, its address comes from
         // there; otherwise the party is found on the network
-        hostUrl: this.scannedHost
+        hostUrl: this.scannedHost || this.joinHostUrl
       });
     },
     endParty() {

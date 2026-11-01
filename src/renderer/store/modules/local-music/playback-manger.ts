@@ -1,6 +1,6 @@
 import { getSong } from "genius-lyrics-api";
 import { ActionTree } from "vuex";
-import { ipcRenderer } from "electron";
+import { ipcRenderer } from "@/platform/ipc";
 import UIController from "./uicontroller";
 import TabsManager from "./tabs-manager";
 import TrackSelector from "./track-selector";

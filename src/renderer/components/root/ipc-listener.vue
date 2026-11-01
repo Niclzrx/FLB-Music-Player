@@ -23,7 +23,7 @@
   </div>
 </template>
 <script>
-import { ipcRenderer } from "electron";
+import { ipcRenderer } from "@/platform/ipc";
 import { mapActions, mapMutations } from "vuex";
 import { removeDuplicates } from "@/shared-utils";
 import { sendMessageToNode } from "@/renderer/utils";

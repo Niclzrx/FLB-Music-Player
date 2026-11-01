@@ -2,6 +2,7 @@ import { TrackType } from '@/types';
 
 export function updateMediaInfo (trackInfo: TrackType) {
   const window_ = window as any;
+  if (!window_.navigator.mediaSession || !window_.MediaMetadata) return;
   window_.navigator.mediaSession.metadata = new window_.MediaMetadata({
     title: trackInfo.defaultTitle,
     artist: trackInfo.defaultArtist,

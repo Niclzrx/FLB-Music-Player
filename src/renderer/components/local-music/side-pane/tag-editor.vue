@@ -87,7 +87,7 @@
 </template>
 
 <script>
-import { ipcRenderer } from 'electron';
+import { ipcRenderer } from '@/platform/ipc';
 import { mapMutations } from 'vuex';
 import { toFileUrl } from '@/renderer/utils';
 

@@ -14,7 +14,7 @@
 </template>
 
 <script>
-import { ipcRenderer } from 'electron';
+import { ipcRenderer } from '@/platform/ipc';
 import { mapMutations } from 'vuex';
 
 export default {

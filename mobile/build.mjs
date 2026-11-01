@@ -1,13 +1,18 @@
-import { mkdir, copyFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-const source = path.join(root, 'src');
 const output = path.join(root, 'www');
-
-await mkdir(output, { recursive: true });
-for (const file of ['index.html', 'app.css', 'app.js']) {
-  await copyFile(path.join(source, file), path.join(output, file));
-}
-console.log(`Mobile party client copied to ${output}`);
+const cli = path.join(root, '..', 'node_modules', '@vue', 'cli-service', 'bin', 'vue-cli-service.js');
+const result = spawnSync(process.execPath, [cli, 'build', '--dest', output], {
+  cwd: path.join(root, '..'),
+  env: {
+    ...process.env,
+    FLB_MOBILE_BUILD: '1',
+    NODE_OPTIONS: [process.env.NODE_OPTIONS, '--openssl-legacy-provider'].filter(Boolean).join(' '),
+  },
+  stdio: 'inherit',
+});
+if (result.error) throw result.error;
+process.exitCode = result.status === null ? 1 : result.status;

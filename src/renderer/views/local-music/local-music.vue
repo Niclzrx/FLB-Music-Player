@@ -29,7 +29,7 @@
 </template>
 
 <script>
-import { ipcRenderer } from "electron";
+import { ipcRenderer, isMobileApp } from "@/platform/ipc";
 
 export default {
   name: "LocalMusic",
@@ -58,10 +58,9 @@ export default {
     tabsArea.addEventListener("drop", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const filePaths = Array.from(event.dataTransfer.files).map(
-        (file) => file.path
-      );
-      ipcRenderer.send("processDroppedFiles", filePaths);
+      const files = Array.from(event.dataTransfer.files);
+      const payload = isMobileApp ? files : files.map((file) => file.path);
+      ipcRenderer.send("processDroppedFiles", payload);
     });
     tabsArea.addEventListener("dragover", (e) => {
       e.preventDefault();

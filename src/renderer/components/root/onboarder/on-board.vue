@@ -5,7 +5,7 @@
       leave-active-class="animated slideOutLeft faster"
     >
       <div
-        v-if="currentSlide === 1"
+        v-if="currentSlide === 1 && !isMobile"
         class="slide"
       >
         <img
@@ -29,9 +29,9 @@
         class="slide"
       >
         <article>
-          <h2>{{ t('onboard.addFolders') }}</h2>
+          <h2>{{ t(isMobile ? 'onboard.addMusic' : 'onboard.addFolders') }}</h2>
           <br>
-          <div class="folderBoxWrapper">
+          <div v-if="!isMobile" class="folderBoxWrapper">
             <div
               v-for="folder in settings.foldersToScan"
               :key="folder"
@@ -50,7 +50,18 @@
               />
             </div>
           </div>
-          <div style="width: 75%; margin-top: 10px">
+          <p v-if="isMobile" class="mobileOnboardHint">
+            {{ t('onboard.mobileHint') }}
+          </p>
+          <div v-if="isMobile" class="mobileOnboardAction">
+            <base-button
+              :active="true"
+              :text="t('onboard.addMusic')"
+              :block="true"
+              @click.native="addFolder"
+            />
+          </div>
+          <div v-else style="width: 75%; margin-top: 10px">
             <base-button
               :active="true"
               :text="t('onboard.addAnotherFolder')"
@@ -60,12 +71,21 @@
           </div>
         </article>
         <base-button
+          v-if="!isMobile"
           id="jamBt"
           :active="true"
           icon-weight="regular"
           icon="caret-left"
           @click.native="initialize"
         />
+        <button
+          v-if="isMobile"
+          class="mobileOnboardSkip"
+          type="button"
+          @click="closeOnBoard"
+        >
+          {{ t('onboard.mobileContinue') }}
+        </button>
       </div>
       <div
         v-if="currentSlide === 3"
@@ -97,14 +117,14 @@
 <script>
 import { mapMutations } from 'vuex';
 import { sendMessageToNode } from '@/renderer/utils/index';
-import { ipcRenderer } from 'electron';
+import { ipcRenderer, isMobileApp } from '@/platform/ipc';
 
 export default {
   name: 'OnBoard',
 
   data() {
     return {
-      currentSlide: 1,
+      currentSlide: isMobileApp ? 2 : 1,
       currentTip: 0,
       fraction: '0/0',
       tips: [
@@ -120,6 +140,9 @@ export default {
   computed: {
     settings() {
       return this.$store.state.SettingsManager.settings;
+    },
+    isMobile() {
+      return isMobileApp;
     },
     addedTracks() {
       return this.$store.state.TabsManager.tabsData.addedTracks;
