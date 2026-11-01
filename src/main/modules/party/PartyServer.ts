@@ -811,6 +811,17 @@ export class PartyServer {
       this.sendJson(res, 404, { error: "unknown_art" });
       return;
     }
+    if (/^data:image\//i.test(artPath)) {
+      const match = artPath.match(/^data:(image\/(?:jpeg|png|webp|gif));base64,([\s\S]+)$/i);
+      if (!match) {
+        this.sendJson(res, 415, { error: "unsupported_art" });
+        return;
+      }
+      const data = Buffer.from(match[2], "base64");
+      res.writeHead(200, { "Content-Type": match[1].toLowerCase(), "Content-Length": data.length });
+      res.end(data);
+      return;
+    }
     if (!READABLE_ART_FORMATS.includes(path.extname(artPath).toLowerCase())) {
       this.sendJson(res, 415, { error: "unsupported_art" });
       return;
@@ -820,8 +831,8 @@ export class PartyServer {
         this.sendJson(res, 404, { error: "missing_art" });
         return;
       }
-      const type =
-        path.extname(artPath).toLowerCase() === ".png" ? "image/png" : "image/jpeg";
+      const extension = path.extname(artPath).toLowerCase();
+      const type = extension === ".png" ? "image/png" : extension === ".webp" ? "image/webp" : "image/jpeg";
       res.writeHead(200, { "Content-Type": type, "Content-Length": data.length });
       res.end(data);
     });

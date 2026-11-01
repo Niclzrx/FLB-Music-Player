@@ -4,7 +4,8 @@ import { ipcRenderer } from "@/platform/ipc";
 import UIController from "./uicontroller";
 import TabsManager from "./tabs-manager";
 import TrackSelector from "./track-selector";
-import { sendMessageToNode } from "@/renderer/utils";
+import { sendMessageToNode, trackSource } from "@/renderer/utils";
+import { fadeOutTrack } from "@/renderer/utils/track-fade";
 import { removeDuplicates, sortArrayOfObjects } from "@/shared-utils";
 import { geniusSongType, TrackLyricsType, TrackType } from "@/types";
 import { updateMediaInfo } from "@/renderer/global-activities/update-windows-media-info";
@@ -49,6 +50,26 @@ const state: PlaybackManagerStateInterface = {
   playingQueue: [],
   customQueue: [],
 };
+/**
+ * The change of track is not abrupt: the track that is left behind keeps
+ * ringing for a moment with the volume going down, while the new one is
+ * already playing at full volume. A track that ends by itself, or that
+ * cannot be played, is not sounding anymore when the next one is chosen, so
+ * it has nothing left to fade.
+ */
+function fadeOutTheTrackBeingLeft(
+  previousTrack: TrackType | null,
+  nextTrack: TrackType
+): void {
+  if (previousTrack === nextTrack) return;
+  const audio = document.querySelector("audio") as HTMLAudioElement | null;
+  if (!audio) return;
+  // the same file twice in a row is not a change of track, the player
+  // element keeps playing without loading anything
+  if (trackSource(nextTrack) === audio.src) return;
+  fadeOutTrack(audio);
+}
+
 const mutations = {
   setPlayingTrack: (
     state: PlaybackManagerStateInterface,
@@ -64,6 +85,7 @@ const mutations = {
       departedGuestPlayingFiles.delete(previousTrack.fileLocation);
     }
     if (payload?.track?.defaultTitle) {
+      fadeOutTheTrackBeingLeft(previousTrack, payload.track);
       state.playingTrackInfo.track = payload.track;
       state.audioState.playing = true;
       if (

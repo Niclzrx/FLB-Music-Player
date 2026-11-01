@@ -175,6 +175,7 @@ export default {
       this.currentSlide = 3;
     },
     closeOnBoard() {
+      if (this.isMobile) localStorage.setItem('flb-mobile-onboard-complete', 'true');
       this.$emit('closeOnBoard');
     }
   },
@@ -187,10 +188,14 @@ export default {
     });
     ipcRenderer.send('initializeSettings');
     setTimeout(() => {
+      if (this.isMobile && localStorage.getItem('flb-mobile-onboard-complete') === 'true') {
+        this.closeOnBoard();
+        return;
+      }
       if (this.addedTracks.length > 0) {
         this.closeOnBoard();
       }
-    }, 1000);
+    }, 300);
   }
 };
 </script>

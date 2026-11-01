@@ -62,3 +62,31 @@ export function disableEqualizer(){
   source.disconnect()
   source.connect(gainNode).connect(audioContext.destination)
 }
+
+/**
+ * Connects an extra audio element to the graph of the player, so it sounds
+ * with the same master volume as the track that is playing. It is used by
+ * the tail of the track that is left behind when the player moves to the
+ * next one. The returned function detaches the element from the graph when
+ * it is not needed anymore.
+ */
+export function connectExtraAudioElement(
+  element: HTMLAudioElement
+): () => void {
+  try {
+    const extraSource = audioContext.createMediaElementSource(element);
+    extraSource.connect(gainNode);
+    return () => {
+      try {
+        extraSource.disconnect();
+      } catch (error) {
+        // the graph was already torn down
+      }
+    };
+  } catch (error) {
+    // the element stays out of the graph and sounds without the equalizer
+    return () => {
+      // the element was never part of the graph
+    };
+  }
+}

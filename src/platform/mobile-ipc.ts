@@ -295,6 +295,8 @@ async function chooseAndImportFolder() {
     ? folders
     : [...folders, folder];
   await writeRecord("mobileFolders", updatedFolders);
+  localStorage.setItem("flb-mobile-onboard-complete", "true");
+  localStorage.setItem("flb-mobile-has-library", "true");
   const settings = { ...defaultSettings, ...(await readRecord("settings", defaultSettings)) };
   settings.foldersToScan = updatedFolders.map((item) => item.name);
   await writeRecord("settings", settings);
@@ -335,9 +337,6 @@ async function initializeApp() {
   const storage = navigator.storage as any;
   if (storage && typeof storage.persist === "function") storage.persist().catch(() => undefined);
   const folders: MobileFolder[] = await readRecord("mobileFolders", []);
-  for (const folder of folders) {
-    try { await importNativeFolder(folder, false); } catch (error) { console.warn("Could not rescan music folder", error); }
-  }
   const tracks = await allTracks();
   await hydrateMediaUrls(tracks);
   const cleanTracks = tracks.map(({ mobileBlobId, ...track }) => track as TrackType);
@@ -350,6 +349,18 @@ async function initializeApp() {
   emit("foldersToScan", savedSettings.foldersToScan);
   if (cleanTracks.length) emit("processedFiles", cleanTracks);
   emit("isOnline", navigator.onLine);
+  if (folders.length || tracks.length) {
+    localStorage.setItem("flb-mobile-onboard-complete", "true");
+    localStorage.setItem("flb-mobile-has-library", "true");
+  }
+  // Restore the cached library immediately. SAF folder rescans can take time
+  // for large music collections, so do them in the background after startup.
+  void (async () => {
+    for (const folder of folders) {
+      try { await importNativeFolder(folder, true); }
+      catch (error) { console.warn("Could not rescan music folder", folder.name, error); }
+    }
+  })();
 }
 
 async function storeTrack(track: TrackType) {
@@ -753,7 +764,8 @@ async function send(channel: string, payload?: any) {
       break;
     case "removeFromScannedFolders": {
       const folders: MobileFolder[] = await readRecord("mobileFolders", []);
-      const folder = folders.find((item) => item.name === payload);
+      const targetPath = typeof payload === "string" ? payload : payload?.path;
+      const folder = folders.find((item) => item.name === targetPath);
       if (!folder) break;
       const remaining = folders.filter((item) => item.uri !== folder.uri);
       await writeRecord("mobileFolders", remaining);

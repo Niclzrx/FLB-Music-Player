@@ -34,8 +34,8 @@ public class FolderAccessPlugin extends Plugin {
     @PluginMethod
     public void pickFolder(PluginCall call) {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         startActivityForResult(call, intent, "folderPicked");
     }
 
@@ -57,7 +57,7 @@ public class FolderAccessPlugin extends Plugin {
             & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         try {
             getContext().getContentResolver().takePersistableUriPermission(treeUri, permissionFlags);
-        } catch (SecurityException ignored) {
+        } catch (Exception ignored) {
             // The current selection remains readable; Android may omit persistable flags for some providers.
         }
 
@@ -117,8 +117,8 @@ public class FolderAccessPlugin extends Plugin {
         try {
             String rootId = DocumentsContract.getTreeDocumentId(treeUri);
             collectAudioFiles(treeUri, rootId, files);
-        } catch (Exception ignored) {
-            // Return any files already discovered; providers can deny individual subfolders.
+        } catch (Exception error) {
+            android.util.Log.w("FLBFolderAccess", "Could not list audio files in selected folder", error);
         }
         JSArray result = new JSArray();
         for (JSObject file : files) result.put(file);
@@ -159,8 +159,8 @@ public class FolderAccessPlugin extends Plugin {
                     files.add(item);
                 }
             }
-        } catch (Exception ignored) {
-            // Keep scanning other folders if this provider blocks one directory.
+        } catch (Exception error) {
+            android.util.Log.w("FLBFolderAccess", "Could not scan music subfolder " + parentId, error);
         }
     }
 

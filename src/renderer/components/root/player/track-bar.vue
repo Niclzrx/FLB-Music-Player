@@ -28,7 +28,7 @@
 
 <script>
 import { mapActions, mapMutations } from "vuex";
-import { toFileUrl } from "@/renderer/utils";
+import { toFileUrl, trackSource } from "@/renderer/utils";
 import "@/renderer/components/root/equalizer/equalizer";
 
 export default {
@@ -41,9 +41,6 @@ export default {
       hoverTime: "00:00",
       seekPercent: 0,
       seekBarWidth: "0%",
-      crossFadeDuration: 12,
-      remainingTime: 0,
-      isCrossFaded: false,
     };
   },
   computed: {
@@ -54,14 +51,9 @@ export default {
       return this.$store.state.PlaybackManger.audioState;
     },
     audioSource() {
-      const track = this.playingTrack || {};
-      if (track.fileLocation) {
-        return toFileUrl(track.fileLocation);
-      }
-      if (track.previewURL) {
-        return track.previewURL;
-      }
-      return track.r_fileLocation || "";
+      // the same url the fade out of the track being left behind compares
+      // against, so the copy is only made when the source really changes
+      return trackSource(this.playingTrack);
     },
   },
   watch: {
@@ -75,11 +67,6 @@ export default {
           if (playing && playing.catch) playing.catch(() => {});
         }
       });
-    },
-    remainingTime(value) {
-      if (value < 14) {
-        //this.crossFade();
-      }
     },
   },
   methods: {
@@ -143,14 +130,6 @@ export default {
       ret += `${secs}`;
       return ret;
     },
-    crossFade() {
-      this.isCrossFaded = true;
-      const currentVolume = this.$refs.audioTag.volume;
-      console.log("Crossfading");
-      console.log("Volume: " + currentVolume);
-      //fade out the volume of the current song when its remaaining time is less than
-      //fade in next audio track
-    },
   },
   mounted() {
     const progressBar = document.querySelector(".seekBar");
@@ -158,7 +137,6 @@ export default {
     document.querySelector("audio").addEventListener("timeupdate", () => {
       this.currentTime = this.timeFormatter(audio.currentTime);
       this.duration = this.timeFormatter(audio.duration);
-      this.remainingTime = Math.floor(audio.duration - audio.currentTime);
       const percent = Math.floor((audio.currentTime / audio.duration) * 100);
       this.seekBarWidth = `${percent}%`;
     });

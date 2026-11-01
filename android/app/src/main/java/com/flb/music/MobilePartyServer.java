@@ -432,7 +432,15 @@ final class MobilePartyServer {
     private void serveArt(Socket socket, String artId) throws Exception {
         byte[] image = art.get(artId == null ? "" : artId);
         if (image == null) { sendJson(socket, 404, new SafeJson().putValue("error", "unknown_art")); return; }
-        send(socket, 200, "image/jpeg", image);
+        send(socket, 200, imageMimeType(image), image);
+    }
+
+    private String imageMimeType(byte[] image) {
+        if (image.length >= 8 && image[0] == (byte) 0x89 && image[1] == 'P' && image[2] == 'N' && image[3] == 'G') return "image/png";
+        if (image.length >= 6 && image[0] == 'G' && image[1] == 'I' && image[2] == 'F') return "image/gif";
+        if (image.length >= 12 && image[0] == 'R' && image[1] == 'I' && image[2] == 'F' && image[3] == 'F'
+            && image[8] == 'W' && image[9] == 'E' && image[10] == 'B' && image[11] == 'P') return "image/webp";
+        return "image/jpeg";
     }
 
     private void sendLanding(Socket socket) throws Exception {
@@ -553,9 +561,19 @@ final class MobilePartyServer {
     private String lanAddress() {
         try {
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            List<NetworkInterface> candidates = new ArrayList<>();
             while (interfaces.hasMoreElements()) {
                 NetworkInterface network = interfaces.nextElement();
-                if (!network.isUp() || network.isLoopback()) continue;
+                String name = network.getName().toLowerCase(Locale.ROOT);
+                if (!network.isUp() || network.isLoopback() || name.startsWith("tun") || name.startsWith("wg")
+                    || name.startsWith("ppp") || name.startsWith("tap") || name.startsWith("tailscale")
+                    || name.startsWith("rmnet") || name.startsWith("dummy")) continue;
+                candidates.add(network);
+            }
+            // Android can enumerate VPN/cellular interfaces before Wi-Fi. The
+            // invitation must point at an address reachable by other devices.
+            Collections.sort(candidates, (left, right) -> Integer.compare(networkPriority(left), networkPriority(right)));
+            for (NetworkInterface network : candidates) {
                 Enumeration<InetAddress> addresses = network.getInetAddresses();
                 while (addresses.hasMoreElements()) {
                     InetAddress address = addresses.nextElement();
@@ -564,6 +582,13 @@ final class MobilePartyServer {
             }
         } catch (Exception ignored) { }
         return "127.0.0.1";
+    }
+
+    private int networkPriority(NetworkInterface network) {
+        String name = network.getName().toLowerCase(Locale.ROOT);
+        if (name.startsWith("wlan") || name.startsWith("wifi") || name.startsWith("ap")) return 0;
+        if (name.startsWith("eth")) return 1;
+        return 2;
     }
 
     private byte[] decodeImage(String value) {

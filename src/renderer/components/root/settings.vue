@@ -643,12 +643,12 @@ export default {
 
 .Settings.mobileSettings {
   box-sizing: border-box;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100dvh !important;
-  max-height: 100dvh !important;
+  inset: calc(env(safe-area-inset-top) + 5px) 5px 5px !important;
+  width: auto !important;
+  height: auto !important;
+  max-height: none !important;
   border-radius: 0 !important;
-  padding: calc(14px + env(safe-area-inset-top)) 14px calc(18px + env(safe-area-inset-bottom)) !important;
+  padding: 8px !important;
 
   > .widget_header {
     position: sticky;

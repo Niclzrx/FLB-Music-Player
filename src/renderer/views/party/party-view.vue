@@ -335,6 +335,7 @@
                 v-if="track.albumArt"
                 :src="localArtUrl(track.albumArt)"
                 class="party_rowArt"
+                @error="hideBrokenArt"
               >
               <div class="party_trackInfo">
                 <p class="text-small-1">
@@ -419,6 +420,7 @@
                 v-if="track.albumArt"
                 :src="localArtUrl(track.albumArt)"
                 class="party_rowArt"
+                @error="hideBrokenArt"
               >
               <div class="party_trackInfo">
                 <p class="text-small-1">
@@ -462,6 +464,7 @@
               v-if="pending.localArt"
               :src="localArtUrl(pending.localArt)"
               class="party_rowArt"
+              @error="hideBrokenArt"
             >
             <div class="party_trackInfo">
               <p class="text-small-1">
@@ -511,6 +514,7 @@
           v-if="nowPlaying.artId"
           :src="artUrl(nowPlaying.artId)"
           class="party_nowArt"
+          @error="hideBrokenArt"
         >
         <div class="party_nowInfo">
           <p class="text-small-2 weight300">
@@ -600,6 +604,7 @@
             v-if="track.artId"
             :src="artUrl(track.artId)"
             class="party_rowArt"
+            @error="hideBrokenArt"
           >
           <div class="party_trackInfo">
             <p class="text-small-1">
@@ -662,6 +667,7 @@
               v-if="track.artId"
               :src="artUrl(track.artId)"
               class="party_rowArt"
+              @error="hideBrokenArt"
             >
             <div class="party_trackInfo">
               <p class="text-small-1">
@@ -705,6 +711,7 @@
               v-if="track.albumArt"
               :src="localArtUrl(track.albumArt)"
               class="party_rowArt"
+              @error="hideBrokenArt"
             >
             <div class="party_trackInfo">
               <p class="text-small-1">
@@ -1117,7 +1124,10 @@ export default {
     },
     artUrl(artId) {
       if (!this.joinedRoom) return '';
-      return `${this.joinedRoom.hostUrl}/api/art?artId=${artId}`;
+      return `${this.joinedRoom.hostUrl}/api/art?artId=${encodeURIComponent(artId)}`;
+    },
+    hideBrokenArt(event) {
+      if (event && event.target) event.target.remove();
     },
     /** Covers of the host come straight from its own disk. */
     localArtUrl(albumArt) {
@@ -1513,68 +1523,59 @@ export default {
       transition: width 0.2s ease;
     }
   }
-  .party_mobile .party_start {
-    justify-content: flex-start;
-    align-items: stretch;
-    max-width: 520px;
-    padding: 10px 2px 20px;
-    overflow-y: auto;
-  }
-  .party_mobile .party_body {
-    flex-direction: column;
-    gap: 14px;
-    padding-bottom: calc(80px + env(safe-area-inset-bottom));
-    overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-  }
-  .party_mobile .party_roomCard {
-    box-sizing: border-box;
-    width: 100%;
-    max-height: none;
-    padding: 16px;
-    border: 1px solid var(--borderColor);
-  }
-  .party_mobile .party_main {
-    flex: none;
-    width: 100%;
-    min-height: 55vh;
-  }
-  .party_mobile .party_list {
-    max-height: 46vh;
-  }
-  .party_mobile .party_nowPlayingCard {
-    gap: 12px;
-    padding: 12px;
-    margin-bottom: 12px;
-  }
-  .party_mobile .party_nowArt {
-    width: 68px;
-    height: 68px;
-  }
-  .party_mobile .party_guestChips {
-    justify-content: flex-start;
-  }
-  .party_mobile .party_formCard {
-    padding: 18px 16px;
-    border-radius: 20px;
-    gap: 12px;
-    background: color-mix(in srgb, var(--secondaryColor) 90%, transparent);
-  }
-  .party_mobile .party_codeInput {
-    letter-spacing: .45em;
-    padding-left: calc(14px + .45em);
-  }
-  .party_mobile .party_scanner {
-    box-sizing: border-box;
-    max-width: none;
-    padding: 12px;
-  }
-  .party_mobile .party_formModes {
-    gap: 8px;
-  }
-  .party_mobile .party_formModes > * {
-    font-size: 12px;
+  &.party_mobile {
+    .party_start {
+      justify-content: flex-start;
+      align-items: stretch;
+      max-width: 520px;
+      padding: 10px 2px 20px;
+      overflow-y: auto;
+    }
+    .party_body {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 14px;
+      width: 100%;
+      min-width: 0;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom));
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+    .party_roomCard,
+    .party_main,
+    .party_list,
+    .party_nowPlayingCard,
+    .party_submissions {
+      box-sizing: border-box;
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+    }
+    .party_roomCard {
+      max-height: none;
+      padding: 16px;
+      border: 1px solid var(--borderColor);
+    }
+    .party_main { flex: none; min-height: 0; }
+    .party_list { max-height: 46vh; }
+    .party_row { width: 100%; min-width: 0; box-sizing: border-box; }
+    .party_trackInfo { overflow: hidden; }
+    .party_nowPlayingCard { gap: 12px; padding: 12px; margin-bottom: 12px; }
+    .party_nowArt { width: 68px; height: 68px; }
+    .party_guestChips { justify-content: flex-start; }
+    .party_formCard {
+      padding: 18px 16px;
+      border-radius: 20px;
+      gap: 12px;
+      background: color-mix(in srgb, var(--secondaryColor) 90%, transparent);
+    }
+    .party_codeInput { letter-spacing: .45em; padding-left: calc(14px + .45em); }
+    .party_scanner { box-sizing: border-box; max-width: none; padding: 12px; }
+    .party_formModes { gap: 8px; }
+    .party_formModes > * { font-size: 12px; }
   }
 }
 </style>

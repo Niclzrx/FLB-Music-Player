@@ -25,6 +25,17 @@ export function toFileUrl (filePath: string) {
     .replace(/#/g, '%23')
     .replace(/\?/g, '%3F')}`;
 }
+/**
+ * The url the player element has to load to play the track. The tracks of
+ * the library point to files, the ones that come from the network bring
+ * their own url.
+ */
+export function trackSource (track: any) {
+  if (!track) return '';
+  if (track.fileLocation) return toFileUrl(track.fileLocation);
+  if (track.previewURL) return track.previewURL;
+  return track.r_fileLocation || '';
+}
 export function isHexColor (s = '') {
   return hexColorRegex.test(s);
 }

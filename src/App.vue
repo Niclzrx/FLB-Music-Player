@@ -64,7 +64,7 @@ export default {
   name: "App",
   data() {
     return {
-      showOnboard: true,
+      showOnboard: !(isMobileApp && localStorage.getItem('flb-mobile-onboard-complete') === 'true'),
       fullPlayer: false,
     };
   },
@@ -198,7 +198,8 @@ body {
   #app {
     height: 100dvh;
     min-height: 100dvh;
-    padding: env(safe-area-inset-top) 0 0 !important;
+    box-sizing: border-box;
+    padding: calc(env(safe-area-inset-top) + 5px) 5px 5px !important;
     overflow: hidden;
   }
   .customTitleBar,
@@ -208,7 +209,7 @@ body {
   .mobileBrandBar {
     height: 56px;
     min-height: 56px;
-    padding: 0 18px;
+    padding: 0 12px;
     display: flex;
     align-items: center;
     gap: 9px;
@@ -306,9 +307,9 @@ body {
   .mobileBottomNav {
     position: fixed;
     z-index: 40;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    left: 5px;
+    right: 5px;
+    bottom: 5px;
     min-height: calc(70px + env(safe-area-inset-bottom));
     padding: 7px 10px calc(7px + env(safe-area-inset-bottom));
     display: grid;
@@ -349,8 +350,8 @@ body {
   .playingPane {
     position: fixed;
     z-index: 38;
-    left: 8px;
-    right: 8px;
+    left: 10px;
+    right: 10px;
     bottom: calc(76px + env(safe-area-inset-bottom));
     width: auto;
     height: 70px;
@@ -432,30 +433,55 @@ body {
   .partyView {
     height: 100%;
     min-height: 0;
-    padding: 18px 16px calc(100px + env(safe-area-inset-bottom));
+    box-sizing: border-box;
+    width: 100%;
+    padding: 10px 5px calc(90px + env(safe-area-inset-bottom));
     overflow-y: auto;
     border-radius: 0;
   }
   .Settings {
     position: fixed !important;
-    inset: 0 !important;
+    inset: calc(env(safe-area-inset-top) + 5px) 5px 5px !important;
     z-index: 80 !important;
-    width: 100vw !important;
-    height: 100dvh !important;
+    box-sizing: border-box !important;
+    width: auto !important;
+    height: auto !important;
     border-radius: 0 !important;
-    padding: calc(12px + env(safe-area-inset-top)) 14px calc(18px + env(safe-area-inset-bottom)) !important;
+    padding: 8px !important;
     overflow-y: auto !important;
     overscroll-behavior: contain;
   }
   .Settings main {
-    display: block !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
     height: auto !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    grid-template-columns: minmax(0, 1fr) !important;
     overflow: visible !important;
   }
   .Settings main > section {
+    box-sizing: border-box !important;
+    flex: none !important;
+    display: flex !important;
+    flex-direction: column !important;
     width: 100% !important;
     max-width: none !important;
+    min-width: 0 !important;
     margin: 0 0 12px !important;
+  }
+  .mobileMode .Settings.mobileSettings > main,
+  .mobileMode .Settings > main {
+    display: flex !important;
+    flex-direction: column !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .mobileMode .Settings.mobileSettings > main > section,
+  .mobileMode .Settings > main > section {
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: none !important;
   }
   .Settings article {
     border-radius: 16px;
