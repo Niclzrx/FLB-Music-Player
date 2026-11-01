@@ -211,6 +211,7 @@ export default {
   "home.artists": "Artists",
   "home.folders": "Folders",
   "home.mixes": "Daily Mixes",
+  "home.mobileMixesEmpty": "Your daily mixes will appear here after the library has music and listening history.",
   "home.playMix": "Play Mix",
 
   "search.tracks": "Tracks",
@@ -279,7 +280,8 @@ export default {
   "onboard.addFolders": "Add your Music Folders",
   "onboard.addAnotherFolder": "Add another Folder",
   "onboard.addMusic": "Choose music files",
-  "onboard.mobileHint": "Pick audio files from your device. You can select several songs at once; Android will ask permission to open them.",
+  "onboard.addFolder": "Choose a music folder",
+  "onboard.mobileHint": "Choose a folder on your device. FLB will find and keep scanning its music files.",
   "onboard.mobileContinue": "Continue to library",
   "onboard.getStarted": "Get Started",
 

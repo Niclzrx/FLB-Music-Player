@@ -1,5 +1,5 @@
 <template>
-  <div class="partyView bg2">
+  <div class="partyView bg2" :class="{ party_mobile: isMobileApp }">
     <!-- ==================== HEADER ==================== -->
     <header class="party_header">
       <img
@@ -36,77 +36,86 @@
     >
       <!-- The two doors: open a party or walk into one -->
       <template v-if="startChoice === 'menu'">
-        <base-button
-          v-if="!isMobileApp"
-          :block="true"
-          :text="t('party.create')"
-          icon="plus"
-          @click.native="startChoice = 'create'"
-        />
-        <div v-if="!isMobileApp" class="party_divider" />
-        <base-button
-          :block="true"
-          :text="t('party.join')"
-          icon="user-plus"
-          @click.native="startChoice = 'join'"
-        />
+        <div class="party_formCard blurred_bg blur20">
+          <h2>{{ t('party.title') }}</h2>
+          <base-button
+            class="party_formButton"
+            :block="true"
+            :text="t('party.create')"
+            icon="plus"
+            @click.native="startChoice = 'create'"
+          />
+          <base-button
+            class="party_formButton"
+            :block="true"
+            :text="t('party.join')"
+            icon="user-plus"
+            @click.native="startChoice = 'join'"
+          />
+        </div>
       </template>
 
       <!-- Open a new party -->
       <template v-else-if="startChoice === 'create'">
-        <img
-          src="@icon/back-circle.svg"
-          class="party_backIcon party_backSmall"
-          @click="startChoice = 'menu'"
-        >
-        <input
-          v-model="newPartyName"
-          :placeholder="t('party.roomNamePlaceholder')"
-          type="text"
-          maxlength="32"
-          class="inputElem mb10"
-        >
-        <div class="party_modeToggle mb10">
+        <div class="party_formCard blurred_bg blur20">
+          <img
+            src="@icon/back-circle.svg"
+            class="party_backIcon party_backSmall"
+            @click="startChoice = 'menu'"
+          >
+          <h2>{{ t('party.create') }}</h2>
+          <input
+            v-model="newPartyName"
+            :placeholder="t('party.roomNamePlaceholder')"
+            type="text"
+            maxlength="32"
+            class="inputElem party_formControl"
+          >
+          <div class="party_modeToggle party_formModes">
+            <base-button
+              :text="t('party.modeFree')"
+              :small="true"
+              :active="newEntryMode === 'free'"
+              @click.native="newEntryMode = 'free'"
+            />
+            <base-button
+              :text="t('party.modeApproval')"
+              :small="true"
+              :active="newEntryMode === 'approval'"
+              @click.native="newEntryMode = 'approval'"
+            />
+          </div>
+          <p class="party_hint weight300 mb10">
+            {{ newEntryMode === 'approval' ? t('party.modeApprovalHint') : t('party.modeFreeHint') }}
+          </p>
           <base-button
-            :text="t('party.modeFree')"
-            :small="true"
-            :active="newEntryMode === 'free'"
-            @click.native="newEntryMode = 'free'"
+            class="party_formButton"
+            :block="true"
+            :text="t('party.create')"
+            @click.native="createRoom"
           />
-          <base-button
-            :text="t('party.modeApproval')"
-            :small="true"
-            :active="newEntryMode === 'approval'"
-            @click.native="newEntryMode = 'approval'"
-          />
+          <p class="party_hint weight300">
+            {{ t('party.createHint') }}
+          </p>
         </div>
-        <p class="party_hint weight300 mb10">
-          {{ newEntryMode === 'approval' ? t('party.modeApprovalHint') : t('party.modeFreeHint') }}
-        </p>
-        <base-button
-          :block="true"
-          :text="t('party.create')"
-          @click.native="createRoom"
-        />
-        <p class="party_hint weight300">
-          {{ t('party.createHint') }}
-        </p>
       </template>
 
       <!-- Walk into a party that is already open -->
       <template v-else>
-        <img
-          src="@icon/back-circle.svg"
-          class="party_backIcon party_backSmall"
-          @click="startChoice = 'menu'"
-        >
-        <base-button
-          :text="t('party.scanQr')"
-          :small="true"
-          :block="true"
-          class="mb10"
-          @click.native="startScanner"
-        />
+        <div class="party_formCard blurred_bg blur20">
+          <img
+            src="@icon/back-circle.svg"
+            class="party_backIcon party_backSmall"
+            @click="startChoice = 'menu'"
+          >
+          <h2>{{ t('party.join') }}</h2>
+          <base-button
+            class="party_formButton"
+            :text="t('party.scanQr')"
+            :small="true"
+            :block="true"
+            @click.native="startScanner"
+          />
         <p
           v-if="scannedHost"
           class="party_hint weight300 party_qrRead"
@@ -140,7 +149,7 @@
           v-model="joinHostUrl"
           :placeholder="t('party.hostAddressPlaceholder')"
           type="url"
-          class="inputElem mb10"
+          class="inputElem party_formControl"
         >
         <input
           v-if="!scannedHost || !joinCode"
@@ -148,16 +157,17 @@
           :placeholder="t('party.codePlaceholder')"
           type="text"
           maxlength="6"
-          class="inputElem mb10 party_codeInput"
+          class="inputElem party_formControl party_codeInput"
         >
         <input
           v-model="joinName"
           :placeholder="t('party.namePlaceholder')"
           type="text"
           maxlength="24"
-          class="inputElem mb10"
+          class="inputElem party_formControl"
         >
         <base-button
+          class="party_formButton"
           :block="true"
           :text="t('party.join')"
           :loading="connection === 'connecting'"
@@ -169,6 +179,7 @@
         >
           {{ t(connectionError) }}
         </p>
+        </div>
       </template>
     </section>
 
@@ -740,7 +751,7 @@ export default {
   data() {
     return {
       // Landing: two doors, create a party or walk into one
-      startChoice: isMobileApp ? 'join' : 'menu',
+      startChoice: 'menu',
       // Creating a new party
       newPartyName: '',
       newEntryMode: 'free',
@@ -1214,9 +1225,55 @@ export default {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    max-width: 380px;
+    max-width: 440px;
     margin: 0 auto;
     width: 100%;
+  }
+  .party_formCard {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 20px;
+    border: 1px solid var(--borderColor);
+    border-radius: 22px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .party_formCard h2 {
+    margin: 0 0 4px;
+    text-align: center;
+    font-size: 1.25rem;
+  }
+  .party_formControl {
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    min-width: 0;
+    min-height: 48px;
+    margin: 0 !important;
+    padding: 0 14px;
+    border: 1px solid var(--borderColor);
+    border-radius: 14px;
+  }
+  .party_formButton {
+    width: 100%;
+    min-height: 48px;
+  }
+  .party_formModes {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 8px;
+  }
+  .party_formModes > * {
+    min-width: 0;
+    width: 100%;
+    min-height: 44px;
+  }
+  .party_formCard .party_hint {
+    margin: 0;
+    line-height: 1.45;
   }
   .party_codeInput {
     text-align: center;
@@ -1455,6 +1512,69 @@ export default {
       background: var(--accentColor);
       transition: width 0.2s ease;
     }
+  }
+  .party_mobile .party_start {
+    justify-content: flex-start;
+    align-items: stretch;
+    max-width: 520px;
+    padding: 10px 2px 20px;
+    overflow-y: auto;
+  }
+  .party_mobile .party_body {
+    flex-direction: column;
+    gap: 14px;
+    padding-bottom: calc(80px + env(safe-area-inset-bottom));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .party_mobile .party_roomCard {
+    box-sizing: border-box;
+    width: 100%;
+    max-height: none;
+    padding: 16px;
+    border: 1px solid var(--borderColor);
+  }
+  .party_mobile .party_main {
+    flex: none;
+    width: 100%;
+    min-height: 55vh;
+  }
+  .party_mobile .party_list {
+    max-height: 46vh;
+  }
+  .party_mobile .party_nowPlayingCard {
+    gap: 12px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .party_mobile .party_nowArt {
+    width: 68px;
+    height: 68px;
+  }
+  .party_mobile .party_guestChips {
+    justify-content: flex-start;
+  }
+  .party_mobile .party_formCard {
+    padding: 18px 16px;
+    border-radius: 20px;
+    gap: 12px;
+    background: color-mix(in srgb, var(--secondaryColor) 90%, transparent);
+  }
+  .party_mobile .party_codeInput {
+    letter-spacing: .45em;
+    padding-left: calc(14px + .45em);
+  }
+  .party_mobile .party_scanner {
+    box-sizing: border-box;
+    max-width: none;
+    padding: 12px;
+  }
+  .party_mobile .party_formModes {
+    gap: 8px;
+  }
+  .party_mobile .party_formModes > * {
+    font-size: 12px;
   }
 }
 </style>

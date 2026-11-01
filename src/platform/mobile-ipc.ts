@@ -1,7 +1,27 @@
 import { TrackType } from "@/types";
+import { registerPlugin } from "@capacitor/core";
 
 type Listener = (event: any, payload?: any) => void;
 type StoredTrack = TrackType & { mobileBlobId: string; mobileSourceKey?: string };
+type MobileFolder = { uri: string; name: string };
+type NativeAudioFile = { uri: string; name: string; type?: string; size?: number; lastModified?: number };
+
+const FolderAccess = registerPlugin<{
+  pickFolder(): Promise<{ uri: string; name: string; files: NativeAudioFile[] }>;
+  listFolder(options: { uri: string }): Promise<{ uri: string; name: string; files: NativeAudioFile[] }>;
+  readFile(options: { uri: string }): Promise<{ base64: string }>;
+}>("FolderAccess");
+const PartyHost = registerPlugin<{
+  startParty(options: { name: string; entryMode: string; tracks: TrackType[] }): Promise<{ code: string; lanUrl: string; qrDataUrl: string }>;
+  updateQueue(options: { snapshot: any }): Promise<void>;
+  stopParty(): Promise<void>;
+  setEntryMode(options: { mode: string }): Promise<void>;
+  resolvePending(options: { pendingId: string; accept: boolean }): Promise<void>;
+  kickGuest(options: { guestId: string }): Promise<void>;
+  blockGuest(options: { guestId: string }): Promise<void>;
+  unblockGuest(options: { deviceToken: string }): Promise<void>;
+  addListener(eventName: string, listener: (payload: any) => void): Promise<{ remove: () => void }>;
+}>("PartyHost");
 
 const DB_NAME = "flb-music-mobile";
 const DB_VERSION = 1;
@@ -10,6 +30,7 @@ const ACCEPTED_AUDIO = /\.(mp3|flac|wav|m4a|aac|ogg|opus|wma|aiff|ape)$/i;
 const handlers = new Map<string, Set<Listener>>();
 const mediaUrls: Record<string, string> = {};
 let dbPromise: Promise<IDBDatabase> | null = null;
+let partyEventsAttached = false;
 
 (window as any).__FLB_MEDIA_URLS__ = mediaUrls;
 
@@ -164,14 +185,19 @@ function formatDuration(seconds: number): string {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
-async function importFiles(files: File[]) {
+async function importFiles(
+  files: File[],
+  folder?: MobileFolder,
+  notify = true,
+  knownSourceKeys?: Set<string>
+) {
   const db = await database();
   const valid = files.filter((file) => ACCEPTED_AUDIO.test(file.name));
-  const existingTracks = await allTracks();
+  const existingTracks = knownSourceKeys ? [] : await allTracks();
   const imported: StoredTrack[] = [];
   for (const [index, file] of valid.entries()) {
-    const sourceKey = `${file.name}:${file.size}:${file.lastModified}`;
-    if (existingTracks.some((track) => track.mobileSourceKey === sourceKey)) continue;
+    const sourceKey = (file as any).__mobileSourceKey || `${file.name}:${file.size}:${file.lastModified}`;
+    if (knownSourceKeys ? knownSourceKeys.has(sourceKey) : existingTracks.some((track) => track.mobileSourceKey === sourceKey)) continue;
     const blobId = id();
     const fileLocation = `${MEDIA_PREFIX}${blobId}`;
     const parts = fileNameParts(file.name);
@@ -199,7 +225,9 @@ async function importFiles(files: File[]) {
       formattedLength: formatDuration(duration),
       duration,
       dateAdded: Date.now(),
-      folderInfo: { name: "On this device", path: "On this device" },
+      folderInfo: folder
+        ? { name: folder.name, path: folder.name }
+        : { name: "On this device", path: "On this device" },
     };
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(["tracks", "audio"], "readwrite");
@@ -210,29 +238,69 @@ async function importFiles(files: File[]) {
     });
     mediaUrls[fileLocation] = URL.createObjectURL(file);
     imported.push(track);
+    if (knownSourceKeys) knownSourceKeys.add(sourceKey);
     emit("parsingProgress", [Math.round(((index + 1) / valid.length) * 100), valid.length]);
   }
-  emit("addMultipleTracks", imported);
-  const all = await allTracks();
-  await hydrateMediaUrls(all);
-  emit("processedFiles", all.map(({ mobileBlobId, ...track }) => track as TrackType));
-  emit("parsingDone");
+  if (notify && imported.length) {
+    emit("addMultipleTracks", imported.map(({ mobileBlobId, ...track }) => track as TrackType));
+    const all = await allTracks();
+    await hydrateMediaUrls(all);
+    emit("processedFiles", all.map(({ mobileBlobId, ...track }) => track as TrackType));
+    emit("parsingDone");
+  }
   return imported;
 }
 
-function chooseAudioFiles(onFiles: (files: File[]) => void) {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "audio/*,.mp3,.flac,.wav,.m4a,.aac,.ogg,.opus,.wma,.aiff,.ape";
-  input.multiple = true;
-  input.style.display = "none";
-  input.addEventListener("change", () => {
-    const files = Array.from(input.files || []);
-    input.remove();
-    onFiles(files);
-  }, { once: true });
-  document.body.appendChild(input);
-  input.click();
+function decodeBase64Blob(encoded: string, mimeType: string): Blob {
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType || "application/octet-stream" });
+}
+
+async function importNativeFolder(folder: MobileFolder, notify: boolean, files?: NativeAudioFile[]) {
+  const listing = files ? { files } : await FolderAccess.listFolder({ uri: folder.uri });
+  const known = new Set((await allTracks()).map((track) => track.mobileSourceKey).filter(Boolean) as string[]);
+  const importedTracks: StoredTrack[] = [];
+  let importedCount = 0;
+  for (const item of listing.files || []) {
+    const sourceKey = `${folder.uri}|${item.uri}|${item.size || 0}|${item.lastModified || 0}`;
+    if (known.has(sourceKey)) continue;
+    const { base64 } = await FolderAccess.readFile({ uri: item.uri });
+    const blob = decodeBase64Blob(base64, item.type || "application/octet-stream");
+    const file = new File([blob], item.name, {
+      type: item.type || "application/octet-stream",
+      lastModified: item.lastModified || Date.now(),
+    });
+    Object.defineProperty(file, "__mobileSourceKey", { value: sourceKey });
+    const imported = await importFiles([file], folder, false, known);
+    importedTracks.push(...imported);
+    importedCount += imported.length;
+  }
+  if (notify && importedCount) {
+    const all = await allTracks();
+    await hydrateMediaUrls(all);
+    emit("addMultipleTracks", importedTracks.map(({ mobileBlobId, ...track }) => track as TrackType));
+    emit("processedFiles", all.map(({ mobileBlobId, ...track }) => track as TrackType));
+    emit("parsingDone");
+  }
+  return importedCount;
+}
+
+async function chooseAndImportFolder() {
+  const selected = await FolderAccess.pickFolder();
+  const folder = { uri: selected.uri, name: selected.name || "Music" };
+  const folders: MobileFolder[] = await readRecord("mobileFolders", []);
+  const updatedFolders = folders.some((item) => item.uri === folder.uri)
+    ? folders
+    : [...folders, folder];
+  await writeRecord("mobileFolders", updatedFolders);
+  const settings = { ...defaultSettings, ...(await readRecord("settings", defaultSettings)) };
+  settings.foldersToScan = updatedFolders.map((item) => item.name);
+  await writeRecord("settings", settings);
+  emit("userSettings", settings);
+  emit("foldersToScan", settings.foldersToScan);
+  await importNativeFolder(folder, true, selected.files);
 }
 
 async function hydrateMediaUrls(tracks: StoredTrack[]) {
@@ -264,16 +332,22 @@ const defaultSettings: any = {
 };
 
 async function initializeApp() {
-  const tracks = await allTracks();
   const storage = navigator.storage as any;
   if (storage && typeof storage.persist === "function") storage.persist().catch(() => undefined);
+  const folders: MobileFolder[] = await readRecord("mobileFolders", []);
+  for (const folder of folders) {
+    try { await importNativeFolder(folder, false); } catch (error) { console.warn("Could not rescan music folder", error); }
+  }
+  const tracks = await allTracks();
   await hydrateMediaUrls(tracks);
   const cleanTracks = tracks.map(({ mobileBlobId, ...track }) => track as TrackType);
-  emit("userSettings", await readRecord("settings", defaultSettings));
+  const savedSettings = { ...defaultSettings, ...(await readRecord("settings", defaultSettings)) };
+  savedSettings.foldersToScan = folders.map((folder) => folder.name);
+  emit("userSettings", savedSettings);
   emit("userPlaylists", await readRecord("playlists", [{ name: "Favorites", tracks: [] }]));
   emit("recentlyPlayed", await readRecord("recentlyPlayed", []));
   emit("playStats", await readRecord("playStats", []));
-  emit("foldersToScan", []);
+  emit("foldersToScan", savedSettings.foldersToScan);
   if (cleanTracks.length) emit("processedFiles", cleanTracks);
   emit("isOnline", navigator.onLine);
 }
@@ -414,6 +488,97 @@ async function loadLyrics() {
   return readRecord("lyrics", []);
 }
 
+function normalizeCoverSearch(value: string): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function onlineCoverFor(track: TrackType): Promise<string> {
+  const title = normalizeCoverSearch(track.defaultTitle || track.title || "");
+  const artist = normalizeCoverSearch(track.defaultArtist || track.artist || "");
+  const album = normalizeCoverSearch(track.album || "");
+  const queries = [
+    [artist, album].filter(Boolean).join(" "),
+    [artist, title].filter(Boolean).join(" "),
+    album,
+    title,
+  ].filter(Boolean);
+  for (const query of Array.from(new Set(queries))) {
+    try {
+      const response = await fetch(`https://api.deezer.com/search?q=${encodeURIComponent(query)}`);
+      if (!response.ok) continue;
+      const result = await response.json();
+      const match = (result.data || []).find((item: any) => item.album && (item.album.cover_xl || item.album.cover_big));
+      if (match) return match.album.cover_xl || match.album.cover_big;
+    } catch (_) {
+      // Network or provider restrictions should not stop local cover recovery.
+    }
+  }
+  return "";
+}
+
+async function repairMobileCovers() {
+  emit("notification", {
+    title: "settings.repairingCovers",
+    subTitle: "settings.repairingCoversHint",
+    type: "persist",
+  });
+  const records = await allTracks();
+  const repaired: TrackType[] = [];
+  const coverByAlbum = new Map<string, string>();
+  const albumKey = (track: TrackType) =>
+    `${normalizeCoverSearch(track.artist || track.defaultArtist || "").toLowerCase()}|${normalizeCoverSearch(track.album || "").toLowerCase()}`;
+
+  records.forEach((track) => {
+    if (track.albumArt && /^(data:image\/|https?:\/\/|blob:)/i.test(track.albumArt)) {
+      const key = albumKey(track);
+      if (key !== "|") coverByAlbum.set(key, track.albumArt);
+    }
+  });
+
+  for (const [index, stored] of records.entries()) {
+    let track = { ...stored } as TrackType;
+    const hasUsableCover = !!track.albumArt && /^(data:image\/|https?:\/\/|blob:)/i.test(track.albumArt);
+    if (!hasUsableCover) track.albumArt = "";
+    if (!hasUsableCover && /\.mp3$/i.test(track.fileName || "")) {
+      const blob = await mobileTrackBlob(track.fileLocation);
+      if (blob) {
+        try {
+          const tags = readMp3Tags(await blob.arrayBuffer());
+          if (tags.albumArt) track.albumArt = tags.albumArt;
+        } catch (_) { /* Keep looking for a cover elsewhere. */ }
+      }
+    }
+    if (!track.albumArt) {
+      const siblingCover = coverByAlbum.get(albumKey(track));
+      if (siblingCover) track.albumArt = siblingCover;
+    }
+    if (!track.albumArt) track.albumArt = await onlineCoverFor(track);
+    if (track.albumArt && track.albumArt !== stored.albumArt) {
+      await storeTrack(track);
+      repaired.push(track);
+      const key = albumKey(track);
+      if (key !== "|") coverByAlbum.set(key, track.albumArt);
+    }
+    emit("notification", {
+      title: "settings.repairingCovers",
+      subTitle: `${index + 1}/${records.length}`,
+      type: "persist",
+    });
+  }
+  emit("closeNotification", "settings.repairingCovers");
+  emit("coversRepaired", repaired);
+  emit("notification", {
+    title: "notification.coversRepaired",
+    subTitle: "notification.coversRepairedCount",
+    type: "success",
+  });
+}
+
 async function importCoverArt() {
   const input = document.createElement("input");
   input.type = "file";
@@ -432,18 +597,70 @@ async function importCoverArt() {
   input.click();
 }
 
+function attachPartyEvents() {
+  if (partyEventsAttached) return;
+  partyEventsAttached = true;
+  const mappings: Record<string, (payload: any) => void> = {
+    partyGuestsUpdate: (payload) => emit("partyGuestsUpdate", payload.guests || []),
+    partyPendingUpdate: (payload) => emit("partyPendingUpdate", payload.pending || []),
+    partyBlockedUpdate: (payload) => emit("partyBlockedUpdate", payload.blocked || []),
+    partyGuestLeft: (payload) => emit("partyGuestLeft", payload),
+    partyGuestBlocked: (payload) => emit("partyGuestBlocked", payload),
+    partyGuestTrackRequested: async (payload) => {
+      const uploadedTrack = payload.uploadedTrack;
+      if (uploadedTrack && uploadedTrack.mobileBase64) {
+        const mimeType = uploadedTrack.fileName?.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() || "mpeg";
+        const audioType = mimeType === "mp3" ? "audio/mpeg" : `audio/${mimeType}`;
+        const blob = decodeBase64Blob(uploadedTrack.mobileBase64, audioType);
+        const fileLocation = uploadedTrack.fileLocation;
+        delete uploadedTrack.mobileBase64;
+        try {
+          uploadedTrack.duration = await durationOf(blob);
+          uploadedTrack.formattedLength = formatDuration(uploadedTrack.duration);
+          const db = await database();
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction("audio", "readwrite");
+            tx.objectStore("audio").put({ id: fileLocation, blob, name: uploadedTrack.fileName, type: blob.type });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+          mediaUrls[fileLocation] = URL.createObjectURL(blob);
+        } catch (error) {
+          console.error("Could not store a party upload", error);
+        }
+      }
+      emit("partyGuestTrackRequested", payload);
+    },
+  };
+  Object.keys(mappings).forEach((eventName) => {
+    PartyHost.addListener(eventName, (payload) => { void mappings[eventName](payload || {}); })
+      .catch((error) => console.warn(`Could not attach ${eventName} listener`, error));
+  });
+}
+
 async function send(channel: string, payload?: any) {
   switch (channel) {
     case "initializeSettings":
-      emit("userSettings", await readRecord("settings", defaultSettings));
+      {
+        const folders: MobileFolder[] = await readRecord("mobileFolders", []);
+        const settings = { ...defaultSettings, ...(await readRecord("settings", defaultSettings)) };
+        settings.foldersToScan = folders.map((folder) => folder.name);
+        emit("userSettings", settings);
+      }
       break;
     case "initializeApp":
       await initializeApp();
       break;
     case "getFirstTracks":
     case "addScanFolder":
+      chooseAndImportFolder().catch((error) => {
+        if (error && error.code !== "CANCELLED") console.error(error);
+      });
+      break;
     case "refresh":
-      chooseAudioFiles((files) => { importFiles(files).catch(console.error); });
+      chooseAndImportFolder().catch((error) => {
+        if (error && error.code !== "CANCELLED") console.error(error);
+      });
       break;
     case "processDroppedFiles":
       if (Array.isArray(payload) && payload.length && payload[0] instanceof File) {
@@ -507,12 +724,21 @@ async function send(channel: string, payload?: any) {
       emit("userPlaylists", [{ name: "Favorites", tracks: [] }]);
       emit("recentlyPlayed", []);
       emit("playStats", []);
+      await writeRecord("mobileFolders", []);
       break;
     }
     case "partyQueueUpdate":
+      await PartyHost.updateQueue({ snapshot: payload || {} });
+      break;
     case "partyStop":
+      await PartyHost.stopParty();
+      break;
     case "partySetEntryMode":
+      await PartyHost.setEntryMode({ mode: payload || "free" });
+      break;
     case "partyPendingResolve":
+      await PartyHost.resolvePending({ pendingId: payload?.pendingId || "", accept: !!payload?.accept });
+      break;
     case "partyGuestTrackRequested":
     case "sendNotification":
     case "closeWindow":
@@ -520,10 +746,26 @@ async function send(channel: string, payload?: any) {
     case "maximize":
     case "toggleMiniMode":
     case "checkForUpdate":
-    case "removeFromScannedFolders":
     case "downloadArtistPicture":
-    case "repairCovers":
       break;
+    case "repairCovers":
+      await repairMobileCovers();
+      break;
+    case "removeFromScannedFolders": {
+      const folders: MobileFolder[] = await readRecord("mobileFolders", []);
+      const folder = folders.find((item) => item.name === payload);
+      if (!folder) break;
+      const remaining = folders.filter((item) => item.uri !== folder.uri);
+      await writeRecord("mobileFolders", remaining);
+      const settings = { ...defaultSettings, ...(await readRecord("settings", defaultSettings)) };
+      settings.foldersToScan = remaining.map((item) => item.name);
+      await writeRecord("settings", settings);
+      emit("userSettings", settings);
+      emit("foldersToScan", settings.foldersToScan);
+      const tracks = (await allTracks()).filter((track) => track.folderInfo.path === folder.name);
+      await deleteTracks(tracks);
+      break;
+    }
     default:
       break;
   }
@@ -539,13 +781,17 @@ async function invoke(channel: string, payload?: any): Promise<any> {
       for (const item of payload || []) await saveLyrics(item);
       return true;
     case "partyDiscover": return null;
-    case "partyStart": throw new Error("Abra uma festa no computador e conecte o celular como convidado.");
+    case "partyStart": return PartyHost.startParty(payload);
+    case "partyKickGuest": return PartyHost.kickGuest({ guestId: String(payload || "") });
+    case "partyBlockGuest": return PartyHost.blockGuest({ guestId: String(payload || "") });
+    case "partyUnblockGuest": return PartyHost.unblockGuest({ deviceToken: String(payload || "") });
     default: return undefined;
   }
 }
 
 export const mobileIpcRenderer = {
   on(channel: string, listener: Listener) {
+    attachPartyEvents();
     if (!handlers.has(channel)) handlers.set(channel, new Set());
     handlers.get(channel)!.add(listener);
     return this;
@@ -580,10 +826,9 @@ export function mobileMediaUrl(fileLocation: string): string {
 
 export async function mobileTrackBlob(fileLocation: string): Promise<Blob | null> {
   const track = (await allTracks()).find((item) => item.fileLocation === fileLocation);
-  if (!track) return null;
   const db = await database();
   return new Promise((resolve) => {
-    const request = db.transaction("audio").objectStore("audio").get(track.mobileBlobId);
+    const request = db.transaction("audio").objectStore("audio").get(track ? track.mobileBlobId : fileLocation);
     request.onsuccess = () => resolve(request.result ? request.result.blob : null);
     request.onerror = () => resolve(null);
   });

@@ -56,7 +56,7 @@
           <div v-if="isMobile" class="mobileOnboardAction">
             <base-button
               :active="true"
-              :text="t('onboard.addMusic')"
+              :text="t('onboard.addFolder')"
               :block="true"
               @click.native="addFolder"
             />

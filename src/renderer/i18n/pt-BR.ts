@@ -212,6 +212,7 @@ export default {
   "home.artists": "Artistas",
   "home.folders": "Pastas",
   "home.mixes": "Mixes Diários",
+  "home.mobileMixesEmpty": "Seus mixes diários aparecem aqui quando a biblioteca tiver músicas e histórico de reprodução.",
   "home.playMix": "Tocar Mix",
 
   "search.tracks": "Faixas",
@@ -280,7 +281,8 @@ export default {
   "onboard.addFolders": "Adicione suas pastas de música",
   "onboard.addAnotherFolder": "Adicionar outra pasta",
   "onboard.addMusic": "Escolher arquivos de música",
-  "onboard.mobileHint": "Escolha arquivos de áudio do aparelho. Você pode selecionar várias músicas de uma vez; o Android pedirá acesso aos arquivos.",
+  "onboard.addFolder": "Escolher uma pasta de músicas",
+  "onboard.mobileHint": "Escolha uma pasta do aparelho. O FLB encontrará e continuará procurando músicas nela.",
   "onboard.mobileContinue": "Ir para a biblioteca",
   "onboard.getStarted": "Começar",
 

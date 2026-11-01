@@ -1,4 +1,4 @@
-import { ipcRenderer, readTrackBlob } from "@/platform/ipc";
+import { ipcRenderer, isMobileApp, readTrackBlob } from "@/platform/ipc";
 import { ActionTree } from "vuex";
 import {
   PartyBlockedInfoType,
@@ -298,7 +298,18 @@ const actions: ActionTree<PartyManagerStateInterface, any> = {
     const info: PartyHostInfo = await ipcRenderer.invoke("partyStart", {
       name,
       entryMode,
+      ...(isMobileApp ? { tracks: rootState.TabsManager.tabsData.addedTracks } : {}),
     });
+    if (isMobileApp && !info.qrDataUrl) {
+      try {
+        const QRCode = require("qrcode");
+        info.qrDataUrl = await QRCode.toDataURL(`${info.lanUrl}/?code=${info.code}`, {
+          margin: 1,
+          width: 320,
+          color: { dark: "#000000", light: "#ffffff" },
+        });
+      } catch (_) { /* Manual code and host address remain available. */ }
+    }
     commit("setMode", "host");
     commit("setHostInfo", info);
     commit("setPartyRoomName", name || "Festa");

@@ -50,15 +50,6 @@
         <span>{{ t('mobile.settings') }}</span>
       </button>
     </nav>
-    <button
-      v-if="isMobile && currentPage === 'My Music'"
-      class="mobileImportButton"
-      :aria-label="t('mobile.addMusic')"
-      @click="importMusic"
-    >
-      <img src="@icon/plus.svg" alt="" />
-      <span>{{ t('mobile.addMusic') }}</span>
-    </button>
     <playing-pane
       class="mb5 mt5"
       v-if="playingTrack && !guestInParty"
@@ -68,7 +59,7 @@
   </div>
 </template>
 <script>
-import { isMobileApp, ipcRenderer } from '@/platform/ipc';
+import { isMobileApp } from '@/platform/ipc';
 export default {
   name: "App",
   data() {
@@ -121,9 +112,6 @@ export default {
       });
       if (page === 'FLBing') this.$router.push('/meld');
       else if (this.$route.path !== '/') this.$router.push('/');
-    },
-    importMusic() {
-      ipcRenderer.send('refresh', '');
     },
     cleanUp() {
       if (document.querySelector(".trackOptions")) {
@@ -358,28 +346,6 @@ body {
     font-size: 11px;
     color: inherit;
   }
-  .mobileImportButton {
-    position: fixed;
-    z-index: 35;
-    right: 18px;
-    bottom: calc(154px + env(safe-area-inset-bottom));
-    min-height: 50px;
-    padding: 0 18px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border: 1px solid var(--borderColor);
-    border-radius: 99px;
-    background: var(--accentColor);
-    box-shadow: 0 8px 26px #0005;
-    color: white;
-    font-size: 13px;
-    font-weight: 650;
-  }
-  .mobileImportButton img {
-    width: 20px;
-    height: 20px;
-  }
   .playingPane {
     position: fixed;
     z-index: 38;
@@ -395,22 +361,29 @@ body {
     overflow: visible;
   }
   .playingPane > .split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
     width: 100%;
+    height: 100%;
+    padding: 6px 10px;
     align-items: center;
   }
   .playingPane .left_pane_section {
-    width: 44%;
+    width: auto;
     min-width: 0;
-    padding: 6px;
+    padding: 0;
     gap: 9px;
   }
   .playingPane .left_pane_section .album_art_wrapper {
-    width: 48px;
-    height: 48px;
+    width: 46px;
+    height: 46px;
     flex: none;
+    border-radius: 11px;
   }
   .playingPane .track_info {
     min-width: 0;
+    max-width: min(34vw, 150px);
     overflow: hidden;
   }
   .playingPane .track_info .track_title,
@@ -418,11 +391,14 @@ body {
     max-width: 100%;
   }
   .playingPane .center_pane_section {
-    width: 56%;
-    padding: 4px 8px;
+    width: auto;
+    min-width: 104px;
+    padding: 0;
+    align-items: flex-end;
   }
   .playingPane .center_pane_section .t_actions {
-    gap: 6px;
+    gap: 9px;
+    justify-content: flex-end;
   }
   .playingPane .center_pane_section #shuffle_bt,
   .playingPane .center_pane_section #repeat_bt,
@@ -437,6 +413,9 @@ body {
   .playingPane .center_pane_section #next_bt button {
     min-width: 42px;
     min-height: 42px;
+  }
+  .LocalMusic .SidePane {
+    display: none !important;
   }
   .playingPane .que_wrappers,
   .playingPane .lyrics_wrappers {
@@ -573,8 +552,7 @@ body {
     backdrop-filter: blur(26px);
   }
   .fullScreenPlayingPane .mobileBrandBar,
-  .fullScreenPlayingPane .mobileBottomNav,
-  .fullScreenPlayingPane .mobileImportButton {
+  .fullScreenPlayingPane .mobileBottomNav {
     display: none !important;
   }
   .fullScreenPlayingPane .playingPane {
@@ -660,6 +638,57 @@ body {
   .fullScreenPlayingPane .playingPane .center_pane_section #toggle_play button {
     width: 54px;
     height: 54px;
+  }
+  .home.tab {
+    height: 100%;
+    overflow-y: auto !important;
+    padding: 4px 2px 16px;
+  }
+  .home .stats {
+    overflow: visible !important;
+    margin: 6px 0 18px;
+    padding: 0;
+  }
+  .home .stats_title {
+    margin: 0 2px 12px !important;
+  }
+  .home .stats_title h1 {
+    font-size: 20px !important;
+    letter-spacing: .01em;
+  }
+  .home .mixesWrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 0 2px 12px;
+    overflow: visible;
+  }
+  .home .MixCard {
+    margin: 0;
+    padding: 14px;
+    border: 1px solid var(--borderColor);
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--secondaryColor) 88%, transparent);
+  }
+  .home .MixCard .cardTitle > .flex {
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .home .MixCard .cardTitle h2 {
+    font-size: 16px;
+  }
+  .home .MixCard .cover {
+    width: 70px;
+    height: 70px;
+    object-fit: cover;
+  }
+  .home .mobileMixesEmpty {
+    margin: 0;
+    padding: 18px;
+    border: 1px dashed var(--borderColor);
+    border-radius: 16px;
+    line-height: 1.5;
+    opacity: .78;
   }
 }
 </style>

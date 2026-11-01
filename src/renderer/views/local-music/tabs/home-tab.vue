@@ -1,6 +1,6 @@
 <template>
   <div class="home tab scroll_y">
-    <div class="stats">
+    <div v-if="!isMobileApp" class="stats">
       <div class="stats_title">
         <h1>{{ t('home.stats') }}</h1>
       </div>
@@ -35,7 +35,7 @@
         </div>
       </div>
     </div>
-    <hr />
+    <hr v-if="!isMobileApp" />
     <div class="stats">
       <div class="stats_title">
         <h1>{{ t('home.mixes') }}</h1>
@@ -48,7 +48,10 @@
           :card-content="mix.info"
           :tracks="mix.tracks"
         />
-        <div style="font-size: 0.8rem; font-family: inherit">
+        <p v-if="isMobileApp && !mixes.length" class="mobileMixesEmpty">
+          {{ t('home.mobileMixesEmpty') }}
+        </p>
+        <div v-if="!isMobileApp" style="font-size: 0.8rem; font-family: inherit">
           * More Daily Mashups will come as you keep on listening *
         </div>
       </div>
@@ -59,7 +62,7 @@
 <script>
 import { mapMutations } from "vuex";
 import { MixGenerator } from "@/renderer/utils/mix-generator";
-import {ipcRenderer} from '@/platform/ipc'
+import { ipcRenderer, isMobileApp } from '@/platform/ipc';
 export default {
   name: "HomeTab",
 
@@ -69,11 +72,28 @@ export default {
     };
   },
   computed: {
+    isMobileApp() {
+      return isMobileApp;
+    },
     tabsData() {
       return this.$store.state.TabsManager.tabsData;
     },
     playStats() {
       return this.$store.state.StatsManager.stats.playStats;
+    },
+    librarySize() {
+      return this.tabsData.addedTracks.length;
+    },
+    recentCount() {
+      return this.tabsData.recentlyPlayedTracks.length;
+    },
+  },
+  watch: {
+    librarySize() {
+      this.initializeMixes();
+    },
+    recentCount() {
+      this.initializeMixes();
     },
   },
   methods: {
@@ -92,7 +112,7 @@ export default {
       const path = tab === "Home" ? "/" : `/${tab}`;
       this.$router.push(path);
     },
-    async intializeMixes(){
+    async initializeMixes(){
       const playStats = await ipcRenderer.invoke('getPlaybackStats');
       const mixGen = new MixGenerator(
         playStats,
@@ -103,10 +123,7 @@ export default {
       }
   },
   mounted() {
-    setTimeout(() => {
-    this.intializeMixes()
-    
-    }, 1000);
+    this.initializeMixes();
   },
 };
 </script>

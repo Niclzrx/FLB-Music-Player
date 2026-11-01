@@ -1,5 +1,5 @@
 <template>
-  <div class="Settings blurred_bg blur40">
+  <div :class="['Settings blurred_bg blur40', isMobileApp ? 'mobileSettings' : '']">
     <div class="widget_header">
       <h1 class="widget_title">{{ t('settings.title') }}</h1>
       <base-button
@@ -13,7 +13,7 @@
       <section>
         <article class="bg1">
           <h4>{{ t('settings.library') }}</h4>
-          <div v-if="!isMobileApp" class="folderBoxWrapper">
+          <div class="folderBoxWrapper">
             <div
               v-for="folder in settings.foldersToScan"
               :key="folder"
@@ -21,7 +21,7 @@
             >
               <div>
                 <p>{{ folder.replace(/(.*)[\/\\]/, "") }}</p>
-                <p style="font-family: inherit; font-size: 0.9rem">
+                <p v-if="!isMobileApp" style="font-family: inherit; font-size: 0.9rem">
                   {{ folder }}
                 </p>
               </div>
@@ -38,13 +38,12 @@
           </p>
           <div class="uselessWrapper">
             <base-button
-              :text="isMobileApp ? t('settings.addMusic') : t('settings.addFolder')"
+              :text="t('settings.addFolder')"
               :block="true"
               :active="true"
               @click.native="addFolder"
             />
             <base-button
-              v-if="!isMobileApp"
               :text="t('settings.repairCovers')"
               :block="true"
               @click.native="repairCovers"
@@ -541,7 +540,7 @@ export default {
       }
     }
   }
-  .Settings .mobileLibraryHint {
+  .mobileLibraryHint {
     margin: 0 4px 14px;
     font-size: 13px;
     line-height: 1.45;
@@ -639,6 +638,91 @@ export default {
   }
   p {
     transform: translateY(20px) scale(0);
+  }
+}
+
+.Settings.mobileSettings {
+  box-sizing: border-box;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  border-radius: 0 !important;
+  padding: calc(14px + env(safe-area-inset-top)) 14px calc(18px + env(safe-area-inset-bottom)) !important;
+
+  > .widget_header {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    min-height: 48px;
+    background: var(--appBackground);
+  }
+
+  > main {
+    display: flex !important;
+    flex: 1 1 auto;
+    flex-direction: column !important;
+    align-items: stretch;
+    width: 100%;
+    min-height: 0;
+    gap: 14px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  > main > section {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 12px;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0;
+    height: auto !important;
+    margin: 0 !important;
+  }
+
+  > main article {
+    box-sizing: border-box;
+    width: 100%;
+    margin: 0 !important;
+    padding: 16px !important;
+    border: 1px solid var(--borderColor);
+    border-radius: 18px !important;
+  }
+
+  .uselessWrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 0 0 !important;
+  }
+
+  .switchList {
+    margin: 0 !important;
+  }
+
+  .info-group {
+    gap: 12px;
+    margin-right: 0;
+    margin-left: 0;
+  }
+
+  .info-group p:last-child {
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  .tabDiv {
+    width: 100% !important;
+    min-height: 44px;
+  }
+
+  .grid2,
+  .grid3,
+  .grid5 {
+    gap: 8px !important;
   }
 }
 </style>
