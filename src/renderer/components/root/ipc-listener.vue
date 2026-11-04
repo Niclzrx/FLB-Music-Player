@@ -48,6 +48,7 @@ export default {
       "restoreRecentlyPlayed",
       "restorePlaylists",
       "restoreSettings",
+      "setScannedFolders",
       "setPlayStats",
       "popNotification",
       "pushNotification",

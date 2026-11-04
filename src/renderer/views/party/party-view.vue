@@ -115,6 +115,7 @@
           >
           <h2>{{ t('party.join') }}</h2>
           <base-button
+            v-if="isMobileApp"
             class="party_formButton"
             :text="t('party.scanQr')"
             :small="true"
@@ -122,13 +123,13 @@
             @click.native="startScanner"
           />
         <p
-          v-if="scannedHost"
+          v-if="isMobileApp && scannedHost"
           class="party_hint weight300 party_qrRead"
         >
           ✅ {{ t('party.qrRead') }}
         </p>
         <div
-          v-if="showScanner"
+          v-if="isMobileApp && showScanner"
           class="party_scanner blurred_bg blur20"
         >
           <video
@@ -147,26 +148,32 @@
             @click.native="stopScanner"
           />
         </div>
-        <!-- After a QR reading with a code inside, the code is already
-             here and the guest only has to tell its name -->
+        <!-- On the PC the room address is required, because the desktop
+             cannot read the QR code of a party hosted on a phone. -->
         <input
-          v-if="!scannedHost"
+          v-if="showHostAddress"
           v-model="joinHostUrl"
           :placeholder="t('party.hostAddressPlaceholder')"
           type="url"
           class="inputElem party_formControl"
+          @input="parseHostInput($event.target.value)"
         >
+        <!-- After a QR reading with a code inside, the code is already
+             here and the guest only has to tell its name -->
         <input
-          v-if="!scannedHost || !joinCode"
+          v-if="showCodeInput"
           v-model="joinCode"
-          @input="parseInviteInput"
+          @input="parseInviteInput($event.target.value)"
           :placeholder="t('party.codePlaceholder')"
           type="text"
           maxlength="240"
           class="inputElem party_formControl party_codeInput"
         >
-        <p v-if="!scannedHost" class="party_hint weight300">
+        <p v-if="showHostAddress" class="party_hint weight300">
           {{ t('party.joinAddressHint') }}
+        </p>
+        <p v-else-if="isMobileApp && !scannedHost" class="party_hint weight300">
+          {{ t('party.joinMobileHint') }}
         </p>
         <input
           v-model="joinName"
@@ -260,7 +267,7 @@
           <div class="party_memberRow party_memberHost">
             <span class="party_avatar">F</span>
             <span class="party_memberInfo"><strong>{{ t('party.you') }}</strong><small>{{ t('party.host') }}</small></span>
-            <span class="party_memberOnline" :class="{ 'is-connecting': guest.status === 'connecting' }"><i class="party_statusDot" />{{ guest.status === 'connecting' ? t('party.connecting') : t('party.online') }}</span>
+            <span class="party_memberOnline"><i class="party_statusDot" />{{ t('party.online') }}</span>
           </div>
           <div
             v-for="guest in guests"
@@ -885,6 +892,17 @@ export default {
     };
   },
   computed: {
+    isMobileApp() {
+      return isMobileApp;
+    },
+    /** The PC must always be able to type the address of a phone-hosted party. */
+    showHostAddress() {
+      return !this.isMobileApp && !this.scannedHost;
+    },
+    showCodeInput() {
+      if (!this.isMobileApp) return !!String(this.joinHostUrl || '').trim();
+      return !this.scannedHost || !this.joinCode;
+    },
     mode() {
       return this.$store.state.PartyManager.mode;
     },
@@ -1066,11 +1084,20 @@ export default {
         hostUrl: this.scannedHost || this.joinHostUrl
       });
     },
-    parseInviteInput() {
-      const value = String(this.joinCode || '').trim();
-      if (!/^https?:\/\//i.test(value)) return;
+    parseHostInput(value) {
+      const text = String(value || '').trim();
+      if (!/^https?:\/\//i.test(text)) return;
       try {
-        const invite = new URL(value);
+        const invite = new URL(text);
+        const code = String(invite.searchParams.get('code') || '').replace(/\D/g, '').slice(0, 6);
+        if (code.length === 6) this.joinCode = code;
+      } catch (_) { /* Keep the text so the user can correct an invalid invite. */ }
+    },
+    parseInviteInput(value) {
+      const text = String(value || '').trim();
+      if (!/^https?:\/\//i.test(text)) return;
+      try {
+        const invite = new URL(text);
         const code = String(invite.searchParams.get('code') || '').replace(/\D/g, '').slice(0, 6);
         if (code.length !== 6) return;
         this.joinCode = code;
@@ -1319,10 +1346,12 @@ export default {
 
 <style lang="scss">
 .partyView {
-  --party-cyan: #46e5f5;
-  --party-lime: #b8ff70;
-  --party-card: rgba(11, 21, 30, 0.78);
-  --party-line: rgba(106, 225, 241, 0.18);
+  --party-cyan: var(--accentColor);
+  --party-lime: var(--accentColor);
+  --party-card: color-mix(in srgb, var(--secondaryColor) 92%, transparent);
+  --party-line: color-mix(in srgb, var(--accentColor) 20%, transparent);
+  --party-soft: color-mix(in srgb, var(--accentColor) 7%, transparent);
+  --party-glow: color-mix(in srgb, var(--accentColor) 55%, transparent);
   position: relative;
   isolation: isolate;
   width: 100%;
@@ -1332,11 +1361,11 @@ export default {
   padding: 15px 25px;
   box-sizing: border-box;
   overflow: hidden;
-  color: #edf8fb;
+  color: var(--textColor);
   background:
-    radial-gradient(ellipse at 14% 0%, rgba(0, 205, 229, .13), transparent 36%),
-    radial-gradient(ellipse at 90% 100%, rgba(31, 111, 255, .12), transparent 38%),
-    #070b10 !important;
+    radial-gradient(ellipse at 14% 0%, color-mix(in srgb, var(--accentColor) 13%, transparent), transparent 36%),
+    radial-gradient(ellipse at 90% 100%, color-mix(in srgb, var(--accentColor) 7%, transparent), transparent 38%),
+    var(--appBackground) !important;
 
   &::before {
     content: "";
@@ -1345,7 +1374,7 @@ export default {
     inset: 0;
     pointer-events: none;
     opacity: .22;
-    background-image: linear-gradient(rgba(90, 220, 240, .025) 1px, transparent 1px), linear-gradient(90deg, rgba(90, 220, 240, .025) 1px, transparent 1px);
+    background-image: linear-gradient(color-mix(in srgb, var(--accentColor) 7%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--accentColor) 7%, transparent) 1px, transparent 1px);
     background-size: 34px 34px;
     mask-image: linear-gradient(to bottom, black, transparent 88%);
   }
@@ -1370,7 +1399,7 @@ export default {
     border-radius: 50%;
     transition: 0.2s ease;
     &:hover {
-      background: rgba(255, 255, 255, 0.12);
+      background: var(--hoverColor);
     }
   }
   .party_backSmall {
@@ -1402,7 +1431,7 @@ export default {
   }
   .party_title {
     margin: 0 auto 0 8px;
-    color: #f4fcff;
+    color: var(--textColor);
     font-size: clamp(1.05rem, 2vw, 1.35rem);
     font-weight: 750;
     letter-spacing: .02em;
@@ -1425,7 +1454,8 @@ export default {
     width: 320px;
     max-width: 90%;
     height: 1px;
-    background: rgba(255, 255, 255, 0.15);
+    background: var(--borderColor);
+    opacity: .5;
     margin: 15px 0px;
   }
   .party_modeToggle {
@@ -1455,7 +1485,7 @@ export default {
     align-items: stretch;
     gap: 10px;
     background: var(--party-card);
-    box-shadow: 0 22px 65px rgba(0, 0, 0, .35), inset 0 1px rgba(255,255,255,.035);
+    box-shadow: 0 22px 65px rgba(0, 0, 0, .35), inset 0 1px color-mix(in srgb, var(--textColor) 4%, transparent);
     backdrop-filter: blur(22px);
   }
   .party_formCard h2 {
@@ -1528,7 +1558,7 @@ export default {
     gap: 8px;
     overflow-y: auto;
     background: var(--party-card);
-    box-shadow: inset 0 1px rgba(255,255,255,.04), 0 18px 45px rgba(0,0,0,.25);
+    box-shadow: inset 0 1px color-mix(in srgb, var(--textColor) 4%, transparent), 0 18px 45px rgba(0,0,0,.25);
   }
   .party_codeRow {
     display: flex;
@@ -1556,7 +1586,7 @@ export default {
     margin-top: 5px;
   }
   .party_guestChip {
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--secondaryColor);
     border-radius: 20px;
     padding: 4px 6px 4px 10px;
     font-size: 0.8rem;
@@ -1593,7 +1623,7 @@ export default {
     overflow-y: auto;
     border-radius: 15px;
     padding: 5px;
-    background: rgba(4, 10, 15, .35);
+    background: color-mix(in srgb, var(--appBackground) 45%, transparent);
   }
   .party_scrollable {
     margin-top: 5px;
@@ -1623,14 +1653,14 @@ export default {
   }
   .party_adminRow {
     cursor: pointer;
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--primaryColor);
     margin-bottom: 4px;
     &:hover {
-      background: rgba(255, 255, 255, 0.13);
+      background: var(--degreeColor);
     }
   }
   .party_pendingRow {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--primaryColor);
     margin-bottom: 4px;
   }
   .party_removeBt {
@@ -1654,7 +1684,7 @@ export default {
     border-radius: 8px;
     object-fit: cover;
     flex-shrink: 0;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--secondaryColor);
   }
 
   .party_nowPlayingCard {
@@ -1671,7 +1701,7 @@ export default {
     border-radius: 15px;
     object-fit: cover;
     flex-shrink: 0;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--secondaryColor);
   }
   .party_nowInfo {
     flex: 1;
@@ -1688,7 +1718,7 @@ export default {
     width: 100%;
     height: 6px;
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.15);
+    background: color-mix(in srgb, var(--textColor) 15%, transparent);
     margin-top: 10px;
     overflow: hidden;
     div {
@@ -1733,7 +1763,7 @@ export default {
     max-width: 90%;
     height: 8px;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.15);
+    background: color-mix(in srgb, var(--textColor) 15%, transparent);
     margin-top: 15px;
     overflow: hidden;
     div {
@@ -1749,10 +1779,10 @@ export default {
     align-items: center;
     gap: 7px;
     width: fit-content;
-    border: 1px solid rgba(70,229,245,.18);
+    border: 1px solid var(--party-line);
     border-radius: 999px;
     padding: 6px 10px;
-    background: rgba(70,229,245,.07);
+    background: var(--party-soft);
     color: var(--party-cyan);
     font-size: .72rem;
     font-weight: 700;
@@ -1763,19 +1793,19 @@ export default {
   .party_connectionNotice.is-error { color: #ff8b9b; border-color: rgba(255,100,120,.3); background: rgba(255,70,100,.08); }
   .party_connectionBadge.is-connecting,
   .party_connectionNotice.is-connecting { color: #ffd979; border-color: rgba(255,217,121,.3); }
-  .party_statusDot { width: 7px; height: 7px; border-radius: 50%; background: var(--party-lime); box-shadow: 0 0 10px rgba(184,255,112,.8); }
-  .party_liveBadge { color: var(--party-lime); border-color: rgba(184,255,112,.2); background: rgba(184,255,112,.06); }
+  .party_statusDot { width: 7px; height: 7px; border-radius: 50%; background: var(--party-lime); box-shadow: 0 0 10px var(--party-glow); }
+  .party_liveBadge { color: var(--party-lime); border-color: var(--party-line); background: var(--party-soft); }
   .party_eyebrow { margin: 0 0 4px; color: var(--party-cyan); font-size: .66rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
   .party_roomCardHeader { width: 100%; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
   .party_roomCardHeader h2 { margin: 0; font-size: 1.15rem; }
   .party_inviteActions { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .party_memberHeading { width: 100%; display: flex; align-items: center; gap: 8px; margin-top: 8px; }
   .party_memberHeading .party_sectionTitle { margin: 0; }
-  .party_memberCount { min-width: 22px; padding: 2px 6px; border-radius: 999px; text-align: center; color: var(--party-cyan); background: rgba(70,229,245,.1); font-size: .72rem; }
+  .party_memberCount { min-width: 22px; padding: 2px 6px; border-radius: 999px; text-align: center; color: var(--party-cyan); background: var(--party-soft); font-size: .72rem; }
   .party_memberList { width: 100%; display: flex; flex-direction: column; gap: 7px; }
-  .party_memberRow { display: flex; align-items: center; min-width: 0; gap: 9px; padding: 8px; border: 1px solid rgba(255,255,255,.055); border-radius: 13px; background: rgba(255,255,255,.025); }
-  .party_memberHost { border-color: rgba(70,229,245,.18); background: rgba(70,229,245,.045); }
-  .party_avatar { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; border-radius: 11px; background: linear-gradient(145deg, rgba(70,229,245,.25), rgba(40,90,120,.22)); color: var(--party-cyan); font-weight: 800; }
+  .party_memberRow { display: flex; align-items: center; min-width: 0; gap: 9px; padding: 8px; border: 1px solid var(--primaryColor); border-radius: 13px; background: var(--primaryColor); }
+  .party_memberHost { border-color: var(--party-line); background: var(--party-soft); }
+  .party_avatar { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; border-radius: 11px; background: linear-gradient(145deg, color-mix(in srgb, var(--accentColor) 25%, transparent), color-mix(in srgb, var(--secondaryColor) 55%, transparent)); color: var(--party-cyan); font-weight: 800; }
   .party_memberInfo { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
   .party_memberInfo strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .85rem; }
   .party_memberInfo small { opacity: .62; font-size: .7rem; }
@@ -1783,7 +1813,7 @@ export default {
   .party_memberOnline.is-connecting { color: #ffd979; }
   .party_memberOnline.is-connecting .party_statusDot { background: #ffd979; box-shadow: 0 0 10px rgba(255,217,121,.65); }
   .party_memberOnline .party_statusDot { width: 6px; height: 6px; }
-  .party_emptyMembers { margin: 2px 0; padding: 10px; border: 1px dashed var(--party-line); border-radius: 12px; color: rgba(237,248,251,.6); text-align: center; font-size: .78rem; }
+  .party_emptyMembers { margin: 2px 0; padding: 10px; border: 1px dashed var(--party-line); border-radius: 12px; color: color-mix(in srgb, var(--textColor) 60%, transparent); text-align: center; font-size: .78rem; }
   .party_guestBody { grid-template-columns: minmax(260px, 380px) minmax(0, 1fr); }
   .party_guestOverview { min-width: 0; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
   .party_guestRoomStatus { padding: 14px; border: 1px solid var(--party-line); border-radius: 18px; background: var(--party-card); }
@@ -1795,22 +1825,22 @@ export default {
   &.party_mode_guest {
     .party_nowPlayingCard { margin: 0; box-shadow: 0 15px 45px rgba(0,0,0,.24); }
     .party_nowInfo { min-width: 0; }
-    .party_progressTrack div { background: linear-gradient(90deg, #39cde9, #a2f8ff); box-shadow: 0 0 12px rgba(70,229,245,.5); }
+    .party_progressTrack div { background: linear-gradient(90deg, var(--accentColor), color-mix(in srgb, var(--accentColor) 58%, var(--textColor))); box-shadow: 0 0 12px var(--party-glow); }
     .party_tabs { flex: 0 0 auto; padding-bottom: 9px; border-bottom: 1px solid var(--party-line); }
     .party_list { flex: 1 1 auto; min-height: 0; max-height: none; }
     .party_row { border: 1px solid transparent; transition: background .16s, border-color .16s; }
-    .party_row:hover { border-color: var(--party-line); background: rgba(70,229,245,.055); }
+    .party_row:hover { border-color: var(--party-line); background: var(--party-soft); }
     .party_rowArt,
-    .party_nowArt { border: 1px solid rgba(70,229,245,.2); }
+    .party_nowArt { border: 1px solid var(--party-line); }
   }
-  .party_roomCard .party_code { color: #f5fdff; text-shadow: 0 0 24px rgba(70,229,245,.26); }
-  .party_roomCard .party_qr { box-shadow: 0 0 25px rgba(70,229,245,.12); }
+  .party_roomCard .party_code { color: var(--textColor); text-shadow: 0 0 24px color-mix(in srgb, var(--accentColor) 26%, transparent); }
+  .party_roomCard .party_qr { box-shadow: 0 0 25px color-mix(in srgb, var(--accentColor) 12%, transparent); }
   .party_guestMain .party_tabs > button,
   .party_roomCard button,
-  .party_start button { border: 1px solid rgba(70,229,245,.14); transition: .18s ease; }
+  .party_start button { border: 1px solid color-mix(in srgb, var(--accentColor) 14%, transparent); transition: .18s ease; }
   .party_guestMain .party_tabs > button.activeBtn,
   .party_roomCard button.activeBtn,
-  .party_start button.activeBtn { border-color: rgba(70,229,245,.5); box-shadow: 0 0 20px rgba(70,229,245,.1); }
+  .party_start button.activeBtn { border-color: color-mix(in srgb, var(--accentColor) 50%, transparent); box-shadow: 0 0 20px var(--party-soft); }
   /* Keep the original, simple create/join card until a room is opened. */
   &.party_mode_none .party_formCard {
     border-color: var(--borderColor);

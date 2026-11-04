@@ -25,6 +25,17 @@ const PartyHost = registerPlugin<{
   unblockGuest(options: { deviceToken: string }): Promise<void>;
   addListener(eventName: string, listener: (payload: any) => void): Promise<{ remove: () => void }>;
 }>("PartyHost");
+const MediaNotification = registerPlugin<{
+  update(options: {
+    title: string;
+    artist?: string;
+    playing: boolean;
+    position?: number;
+    duration?: number;
+  }): Promise<void>;
+  clear(): Promise<void>;
+  addListener(eventName: string, listener: (payload: any) => void): Promise<{ remove: () => void }>;
+}>("MediaNotification");
 
 const DB_NAME = "flb-music-mobile";
 const DB_VERSION = 1;
@@ -34,8 +45,64 @@ const handlers = new Map<string, Set<Listener>>();
 const mediaUrls: Record<string, string> = {};
 let dbPromise: Promise<IDBDatabase> | null = null;
 let partyEventsAttached = false;
+let mobileMediaActionHandler: ((action: string) => void) | null = null;
+let mobileMediaListener: Promise<{ remove: () => void } | undefined> | null = null;
 
 (window as any).__FLB_MEDIA_URLS__ = mediaUrls;
+
+/**
+ * Keeps the native Android media notification in sync with the player. It is
+ * intentionally silent when the web build is opened outside Capacitor.
+ */
+export function updateMobileMediaNotification(
+  track: TrackType | null,
+  playing: boolean
+): void {
+  if (!track || !track.defaultTitle) {
+    MediaNotification.clear().catch(() => undefined);
+    return;
+  }
+  const audio = document.querySelector("audio");
+  const position = audio && Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+  const duration =
+    audio && Number.isFinite(audio.duration) && audio.duration > 0
+      ? audio.duration
+      : Number(track.duration) || 0;
+
+  MediaNotification.update({
+    title: track.defaultTitle,
+    artist: track.defaultArtist || "",
+    playing,
+    position,
+    duration,
+  }).catch(() => undefined);
+}
+
+/**
+ * The notification buttons live outside the Vue tree, so the player registers
+ * one handler here and receives previous/next/play/pause actions from Android.
+ */
+export function setMobileMediaActionHandler(
+  handler: ((action: string) => void) | null
+): () => void {
+  mobileMediaActionHandler = handler;
+  if (handler && !mobileMediaListener) {
+    try {
+      mobileMediaListener = MediaNotification.addListener("mediaAction", (payload) => {
+        const action = payload && payload.action ? String(payload.action) : "";
+        if (action && mobileMediaActionHandler) mobileMediaActionHandler(action);
+      }).catch((error) => {
+        console.warn("Could not attach the media notification listener", error);
+        return undefined;
+      });
+    } catch (error) {
+      console.warn("Could not attach the media notification listener", error);
+    }
+  }
+  return () => {
+    if (mobileMediaActionHandler === handler) mobileMediaActionHandler = null;
+  };
+}
 
 function database(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
@@ -90,7 +157,11 @@ async function allTracks(): Promise<StoredTrack[]> {
 function emit(channel: string, payload?: any) {
   const listeners = handlers.get(channel);
   if (!listeners) return;
-  listeners.forEach((listener) => listener({}, payload));
+  listeners.forEach((listener) => {
+    // One broken listener must never stop the library from being restored.
+    try { listener({}, payload); }
+    catch (error) { console.error(`Could not handle mobile event "${channel}"`, error); }
+  });
 }
 
 function id() {

@@ -46,6 +46,11 @@ export default {
       return this.$store.state.SettingsManager.settings.defaultTab;
     }
   },
+  watch: {
+    currentTab(tabName) {
+      this.scrollToTab(tabName);
+    }
+  },
   methods: {
     ...mapMutations(['deSelectGroup', 'clearSelectedTracks', 'UIcontrollerSetPropertyValue']),
     routeTo(tab) {
@@ -53,6 +58,26 @@ export default {
       this.deSelectGroup();
       if (tab.path !== this.$route.path) this.$router.push(tab.path);
       this.UIcontrollerSetPropertyValue({ property: 'currentMainTab', newValue: tab.name });
+    },
+    scrollToTab(tabName) {
+      this.$nextTick(() => {
+        const tab = document.getElementById(tabName);
+        const switcher = this.$el;
+        if (!tab || !switcher) return;
+        const tabRect = tab.getBoundingClientRect();
+        const switcherRect = switcher.getBoundingClientRect();
+        if (tabRect.left < switcherRect.left) {
+          switcher.scrollTo({
+            left: switcher.scrollLeft + tabRect.left - switcherRect.left - 8,
+            behavior: 'smooth'
+          });
+        } else if (tabRect.right > switcherRect.right) {
+          switcher.scrollTo({
+            left: switcher.scrollLeft + tabRect.right - switcherRect.right + 8,
+            behavior: 'smooth'
+          });
+        }
+      });
     }
   },
   mounted() {

@@ -105,6 +105,16 @@ export default {
         property: 'currentPage',
         newValue: page,
       });
+      if (page === 'My Music') {
+        // The bottom Home button must also select Home in the tab carousel,
+        // otherwise the old tab stays active and Home can be left off-screen.
+        this.$store.commit('UIcontrollerSetPropertyValue', {
+          property: 'currentMainTab',
+          newValue: 'Home',
+        });
+        if (this.$route.path !== '/') this.$router.push('/');
+        return;
+      }
       if (page === 'FLBing') this.$router.push('/meld');
       else if (this.$route.path !== '/') this.$router.push('/');
     },
@@ -182,7 +192,9 @@ body {
   padding-top: 0px;
   height: 100vh;
 }
-@media (max-width: 700px) {
+/* The mobile app must keep the compact layout in landscape and on wide
+   phones too, so the width query is not the only trigger. */
+@media (max-width: 700px), (hover: none) and (pointer: coarse) {
   html,
   body {
     height: 100%;
@@ -244,33 +256,46 @@ body {
     max-height: none;
     margin: 0;
     min-height: 0;
+    box-sizing: border-box;
     padding: 8px 8px calc(150px + env(safe-area-inset-bottom));
     border-radius: 0;
+    overflow-x: hidden !important;
     overflow-y: auto;
     overscroll-behavior: contain;
   }
-  .Tabswitcher {
-    justify-content: flex-start;
-    gap: 8px;
-    margin: 6px 0 12px;
-    padding: 3px 5px 8px;
+  /* The component styles are loaded after this file, so the mobile rules need
+     the extra specificity of #app.mobileMode to actually win. */
+  #app.mobileMode .Tabswitcher {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: flex-start !important;
+    gap: 6px;
+    width: 100%;
+    min-height: 36px;
+    box-sizing: border-box;
+    margin: 0 0 10px;
+    padding: 2px 2px 4px;
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
   }
-  .Tabswitcher::-webkit-scrollbar {
+  #app.mobileMode .Tabswitcher::-webkit-scrollbar {
     display: none;
   }
-  .Tabswitcher .tabBtn {
+  #app.mobileMode .Tabswitcher .tabBtn {
     flex: 0 0 auto;
-    min-height: 40px;
-    padding: 8px 13px;
+    height: 36px;
+    min-height: 36px;
+    box-sizing: border-box;
+    padding: 0 11px;
     border: 1px solid var(--borderColor);
     border-radius: 999px;
   }
-  .Tabswitcher .tabBtn p {
+  #app.mobileMode .Tabswitcher .tabBtn p {
     font-size: 12px;
+    line-height: 1;
     white-space: nowrap;
   }
   .LocalMusic .sidePane,
@@ -283,27 +308,30 @@ body {
     left: 5px;
     right: 5px;
     bottom: 5px;
-    min-height: calc(70px + env(safe-area-inset-bottom));
-    padding: 7px 10px calc(7px + env(safe-area-inset-bottom));
+    height: calc(64px + env(safe-area-inset-bottom));
+    min-height: calc(64px + env(safe-area-inset-bottom));
+    padding: 5px 8px calc(5px + env(safe-area-inset-bottom));
+    box-sizing: border-box;
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     align-items: center;
     background: color-mix(in srgb, var(--secondaryColor) 94%, transparent);
     border-top: 1px solid var(--borderColor);
+    border-radius: 16px;
     backdrop-filter: blur(24px);
   }
   .mobileBottomNav button {
-    min-width: 52px;
-    min-height: 52px;
+    min-width: 0;
+    min-height: 48px;
     border: 0;
-    border-radius: 16px;
+    border-radius: 12px;
     background: transparent;
     color: var(--textColor);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 5px;
+    gap: 3px;
     opacity: .72;
   }
   .mobileBottomNav button.active {
@@ -312,81 +340,175 @@ body {
     background: var(--primaryColor);
   }
   .mobileBottomNav img {
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     object-fit: contain;
   }
   .mobileBottomNav span {
-    font-size: 11px;
+    font-size: 10px;
+    line-height: 1;
     color: inherit;
   }
-  .playingPane {
+  /* Compact player. The body selector also keeps these rules away from the
+     full screen player. */
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane {
     position: fixed;
     z-index: 38;
-    left: 10px;
-    right: 10px;
+    left: 8px;
+    right: 8px;
     bottom: calc(76px + env(safe-area-inset-bottom));
     width: auto;
-    height: 70px;
+    height: 72px;
+    min-height: 72px;
+    max-height: 72px;
+    margin: 0 !important;
+    box-sizing: border-box;
     border: 1px solid var(--borderColor);
-    border-radius: 18px;
+    border-radius: 16px;
     background: color-mix(in srgb, var(--secondaryColor) 92%, transparent);
     backdrop-filter: blur(20px);
     overflow: visible;
   }
-  .playingPane > .split {
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane > .split {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 8px;
+    gap: 4px;
     width: 100%;
     height: 100%;
-    padding: 6px 10px;
+    box-sizing: border-box;
+    padding: 7px 10px;
     align-items: center;
   }
-  .playingPane .left_pane_section {
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .left_pane_section {
     width: auto;
     min-width: 0;
+    height: 100%;
     padding: 0;
-    gap: 9px;
-  }
-  .playingPane .left_pane_section .album_art_wrapper {
-    width: 46px;
-    height: 46px;
-    flex: none;
-    border-radius: 11px;
-  }
-  .playingPane .track_info {
-    min-width: 0;
-    max-width: min(34vw, 150px);
+    gap: 8px;
     overflow: hidden;
   }
-  .playingPane .track_info .track_title,
-  .playingPane .track_info .track_artist {
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .album_art_wrapper {
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+    border-radius: 10px;
+  }
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .track_info {
+    min-width: 0;
+    max-width: min(48vw, 190px);
+    height: auto;
+    gap: 1px;
+    overflow: hidden;
+  }
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .track_info .track_title {
     max-width: 100%;
+    font-size: 13px;
+    line-height: 1.2;
   }
-  .playingPane .center_pane_section {
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .track_info .track_artist {
+    max-width: 100%;
+    font-size: 11px;
+    line-height: 1.2;
+    opacity: .72;
+  }
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .center_pane_section {
     width: auto;
-    min-width: 104px;
+    min-width: 0;
+    height: 100%;
     padding: 0;
-    align-items: flex-end;
+    align-items: center;
+    justify-content: center;
   }
-  .playingPane .center_pane_section .t_actions {
-    gap: 9px;
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .center_pane_section .t_actions {
+    gap: 2px;
+    align-items: center;
     justify-content: flex-end;
   }
-  .playingPane .center_pane_section #shuffle_bt,
-  .playingPane .center_pane_section #repeat_bt,
-  .playingPane .center_pane_section #prev_bt,
-  .playingPane .TrackBar,
-  .playingPane .right_pane_section,
-  .playingPane .album_art_blurred,
-  .playingPane #lyrics_bt {
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane #prev_bt {
+    display: flex !important;
+  }
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane #prev_bt,
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane #next_bt {
+    width: 30px !important;
+    height: 30px !important;
+    min-width: 30px;
+    min-height: 30px;
+    padding: 0;
+  }
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane #toggle_play button {
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px;
+    min-height: 36px;
+  }
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .scale_icon img {
+    transform: none;
+  }
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane #shuffle_bt,
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane #repeat_bt,
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .right_pane_section,
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .album_art_blurred,
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane #lyrics_bt {
     display: none !important;
   }
-  .playingPane .center_pane_section #toggle_play button,
-  .playingPane .center_pane_section #next_bt button {
-    min-width: 42px;
-    min-height: 42px;
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .TrackBar {
+    display: none !important;
+  }
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .mobilePlayerTimer {
+    display: block;
+    max-width: 100%;
+    margin-top: 1px;
+    font-size: 10px;
+    line-height: 1;
+    letter-spacing: .02em;
+    opacity: .55;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Compact controls float over the player without heavy button backgrounds. */
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .t_actions button {
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .t_actions button:hover {
+    background: transparent !important;
+  }
+  /* Small grab handle: drag it up to open the full player, tap to toggle. */
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .mobilePlayerHandle {
+    position: absolute;
+    top: 2px;
+    left: 50%;
+    z-index: 6;
+    width: 70px;
+    height: 16px;
+    min-width: 0;
+    min-height: 0;
+    padding: 3px 0 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    transform: translateX(-50%);
+    touch-action: none;
+    cursor: grab;
+  }
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .mobilePlayerHandle span {
+    display: block;
+    width: 34px;
+    height: 4px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--textColor) 46%, transparent);
+    box-shadow: 0 1px 5px #0004;
+  }
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .mobilePlayerHandle:active,
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .mobilePlayerHandle.is-dragging {
+    cursor: grabbing;
+  }
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .mobilePlayerHandle:active span,
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .mobilePlayerHandle.is-dragging span {
+    width: 42px;
+    background: var(--accentColor);
   }
   .LocalMusic .SidePane {
     display: none !important;
@@ -395,7 +517,7 @@ body {
   .playingPane .lyrics_wrappers {
     position: fixed;
     z-index: 45;
-    inset: 8px 8px calc(138px + env(safe-area-inset-bottom));
+    inset: 8px 8px calc(152px + env(safe-area-inset-bottom));
     width: auto;
     height: auto;
     background: var(--appBackground);
@@ -519,52 +641,51 @@ body {
     gap: 10px;
     padding-bottom: 8px;
   }
-  .Titlebar {
-    display: grid;
+  #app.mobileMode .Titlebar {
+    display: grid !important;
     grid-template-columns: minmax(0, 1fr) 36px 36px;
+    align-items: center;
     gap: 6px;
-    padding: 0 2px 10px;
+    padding: 0 0 8px;
   }
-  .Titlebar .pos-rel {
+  #app.mobileMode .Titlebar .pos-rel {
     grid-column: 1;
     grid-row: 1;
-    min-height: 38px;
+    min-width: 0;
+    min-height: 36px;
   }
-  .Titlebar > .multiSelect {
+  #app.mobileMode .Titlebar > .multiSelect {
     grid-column: 2;
     grid-row: 1;
   }
-  .Titlebar .sortWidget {
+  #app.mobileMode .Titlebar .sortWidget {
     grid-column: 3;
     grid-row: 1;
   }
-  .Titlebar .multiSelect,
-  .Titlebar .sortToggleButton {
+  #app.mobileMode .Titlebar .multiSelect,
+  #app.mobileMode .Titlebar .sortToggleButton {
     width: 36px;
     min-width: 36px;
     height: 36px;
+    min-height: 36px;
     padding: 0;
     border-radius: 11px;
   }
-  .Titlebar .multiSelect .btnText,
-  .Titlebar .sortToggleButton .btnText {
+  #app.mobileMode .Titlebar .multiSelect .btnText,
+  #app.mobileMode .Titlebar .sortToggleButton .btnText {
     display: none;
   }
-  .Titlebar #search {
+  #app.mobileMode .Titlebar #search {
     min-width: 0;
     width: 100%;
-    height: 38px;
-    min-height: 38px;
+    height: 36px;
+    min-height: 36px;
+    padding: 1px 12px;
     box-sizing: border-box;
+    font-size: 14px;
+    border-radius: 12px;
     background: var(--primaryColor);
     border: 1px solid var(--borderColor);
-  }
-  .Titlebar .multiSelect {
-    min-width: 40px;
-    min-height: 40px;
-  }
-  .Titlebar .pos-rel {
-    min-width: 0;
   }
   .onboard {
     inset: calc(env(safe-area-inset-top) + 8px) 10px calc(8px + env(safe-area-inset-bottom));
@@ -577,162 +698,431 @@ body {
     background: color-mix(in srgb, var(--appBackground) 86%, transparent);
     backdrop-filter: blur(26px);
   }
-  .fullScreenPlayingPane .mobileBottomNav {
+  body.fullScreenPlayingPane #app.mobileMode .mobileBottomNav {
     display: none !important;
   }
-  .fullScreenPlayingPane .playingPane {
+  body.fullScreenPlayingPane #app.mobileMode .playingPane {
     position: fixed;
     inset: 0;
     z-index: 70;
     width: 100vw;
     height: 100dvh;
+    max-height: none;
+    margin: 0 !important;
+    box-sizing: border-box;
     border: 0;
     border-radius: 0;
-    background: var(--appBackground);
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 50% 14%, color-mix(in srgb, var(--accentColor) 16%, transparent), transparent 42%),
+      color-mix(in srgb, var(--appBackground) 78%, transparent) !important;
+    -webkit-backdrop-filter: blur(40px) saturate(125%);
+    backdrop-filter: blur(40px) saturate(125%);
   }
-  .fullScreenPlayingPane .playingPane > .split {
+  body.fullScreenPlayingPane #app.mobileMode .playingPane > .split {
+    display: block;
     width: 100%;
     height: 100%;
   }
-  .fullScreenPlayingPane .playingPane .left_pane_section {
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .album_art_blurred {
+    display: block !important;
+    z-index: 0;
+    left: -8vw;
+    top: -16vh;
+    width: 116vw;
+    height: 88vh;
+    opacity: .34;
+    filter: blur(82px) saturate(125%);
+    transform: scale(1.08);
+    pointer-events: none;
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .left_pane_section {
     position: absolute;
-    inset: 9vh 0 auto;
+    inset: 7vh 0 auto;
+    z-index: 2;
     width: 100%;
-    height: 62vh;
+    height: 66vh;
+    box-sizing: border-box;
     align-items: center;
     justify-content: flex-start;
-    padding: 0 24px;
+    padding: 0 20px;
   }
-  .fullScreenPlayingPane .playingPane .left_pane_section .album_art_wrapper {
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .album_art_wrapper {
     position: absolute;
     left: 50%;
-    top: 2vh;
-    width: min(72vw, 360px);
-    height: min(72vw, 360px);
+    top: 0;
+    width: min(68vw, 300px);
+    height: min(68vw, 300px);
     transform: translateX(-50%);
     border-radius: 22px;
-    box-shadow: 0 24px 72px #0008;
+    box-shadow: 0 26px 76px #0009;
   }
-  .fullScreenPlayingPane .playingPane .track_info {
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .track_info {
     position: absolute;
-    left: 24px;
-    right: 24px;
-    bottom: 0;
+    left: 20px;
+    right: 20px;
+    top: calc(min(68vw, 300px) + 20px);
+    bottom: auto;
+    width: auto;
+    max-width: calc(100% - 40px);
     height: auto;
+    box-sizing: border-box;
+    gap: 3px;
     transform: none;
     align-items: center;
   }
-  .fullScreenPlayingPane .playingPane .track_info .track_title {
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .track_info .track_title {
     max-width: 100%;
     text-align: center;
-    font-size: 21px;
+    font-size: 22px;
+    line-height: 1.2;
   }
-  .fullScreenPlayingPane .playingPane .track_info .track_artist {
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .track_info .track_artist {
     max-width: 100%;
     text-align: center;
     font-size: 15px;
+    line-height: 1.25;
+    opacity: .76;
   }
-  .fullScreenPlayingPane .playingPane .center_pane_section {
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .mobilePlayerTimer {
+    display: none !important;
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .mobilePlayerTopButton {
     position: absolute;
-    inset: auto 0 8vh;
-    width: 100%;
-    height: 22vh;
-    padding: 0 24px;
-    justify-content: flex-end;
-  }
-  .fullScreenPlayingPane .playingPane .TrackBar {
-    position: static;
-    width: 100%;
-    transform: none;
-    margin-bottom: 14px;
-  }
-  .fullScreenPlayingPane .playingPane .center_pane_section .t_actions {
-    position: static;
-    transform: none;
-    width: 100%;
-    justify-content: space-around;
-    padding: 0 12px;
-  }
-  .fullScreenPlayingPane .playingPane .center_pane_section #shuffle_bt,
-  .fullScreenPlayingPane .playingPane .center_pane_section #repeat_bt,
-  .fullScreenPlayingPane .playingPane .center_pane_section #prev_bt,
-  .fullScreenPlayingPane .playingPane .TrackBar,
-  .fullScreenPlayingPane .playingPane .right_pane_section {
-    display: flex !important;
-  }
-  .fullScreenPlayingPane .playingPane .center_pane_section #toggle_play button {
-    width: 54px;
-    height: 54px;
-  }
-  .home.tab {
-    height: 100%;
-    overflow-y: auto !important;
-    padding: 4px 2px 16px;
-  }
-  .home .stats {
-    overflow: visible !important;
-    margin: 6px 0 18px;
+    top: calc(env(safe-area-inset-top) + 12px);
+    z-index: 90;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
     padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--textColor);
+    display: grid;
+    place-items: center;
   }
-  .home .stats_title {
-    margin: 0 2px 12px !important;
+  body.fullScreenPlayingPane #app.mobileMode .playingPane #mobilePlayerOptions {
+    left: 12px;
   }
-  .home .stats_title h1 {
-    font-size: 20px !important;
-    letter-spacing: .01em;
+  body.fullScreenPlayingPane #app.mobileMode .playingPane #mobilePlayerCollapse {
+    right: 12px;
   }
-  .home .mixesWrapper {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 0 2px 12px;
-    overflow: visible;
-  }
-  .home .MixCard {
-    margin: 0;
-    padding: 14px;
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .mobilePlayerMenu {
+    position: absolute;
+    top: calc(env(safe-area-inset-top) + 64px);
+    left: 12px;
+    z-index: 95;
+    width: min(240px, calc(100vw - 72px));
+    box-sizing: border-box;
+    padding: 7px;
     border: 1px solid var(--borderColor);
     border-radius: 18px;
+    background: color-mix(in srgb, var(--secondaryColor) 96%, transparent);
+    box-shadow: 0 18px 50px #0007;
+    backdrop-filter: blur(26px);
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .mobilePlayerMenu button {
+    width: 100%;
+    min-height: 42px;
+    padding: 0 11px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--textColor);
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    text-align: left;
+    font: inherit;
+    font-size: 13px;
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .mobilePlayerMenu button:active {
+    background: var(--primaryColor);
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .center_pane_section {
+    position: absolute;
+    inset: auto 0 5vh;
+    z-index: 2;
+    width: 100%;
+    height: 24vh;
+    margin-left: 0 !important;
+    box-sizing: border-box;
+    padding: 0 22px;
+    justify-content: flex-end;
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .center_pane_section .TrackBar {
+    order: 1;
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .center_pane_section .t_actions {
+    order: 2;
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .TrackBar {
+    position: static;
+    width: 100%;
+    height: 44px;
+    box-sizing: border-box;
+    gap: 8px;
+    transform: none;
+    margin-bottom: 16px;
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .TrackBar .progressInfoCard {
+    margin-bottom: 2px;
+    opacity: .7;
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .TrackBar .progressInfoCard p {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .TrackBar .seekBar {
+    height: 4px;
+    background: color-mix(in srgb, var(--textColor) 16%, transparent);
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .TrackBar .seekBar .seekProgress {
+    height: 100%;
+    bottom: 0;
+    background: var(--accentColor);
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .center_pane_section .t_actions {
+    position: static;
+    transform: none;
+    width: 100%;
+    box-sizing: border-box;
+    gap: 4px;
+    justify-content: space-between;
+    padding: 0 6px;
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .center_pane_section #shuffle_bt,
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .center_pane_section #repeat_bt,
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .center_pane_section #prev_bt,
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .TrackBar {
+    display: flex !important;
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane #repeat_bt { order: 1; }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane #prev_bt { order: 2; }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane #toggle_play { order: 3; }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane #next_bt { order: 4; }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane #shuffle_bt { order: 5; }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane #prev_bt,
+  body.fullScreenPlayingPane #app.mobileMode .playingPane #next_bt,
+  body.fullScreenPlayingPane #app.mobileMode .playingPane #shuffle_bt,
+  body.fullScreenPlayingPane #app.mobileMode .playingPane #repeat_bt {
+    width: 42px !important;
+    height: 42px !important;
+    min-width: 42px;
+    min-height: 42px;
+    padding: 0;
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .t_actions button {
+    position: relative;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .t_actions button.activeBtn::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 1px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--accentColor);
+    transform: translateX(-50%);
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .scale_icon img {
+    transform: none;
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .center_pane_section #toggle_play button {
+    width: 56px;
+    height: 56px;
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .right_pane_section,
+  body.fullScreenPlayingPane #app.mobileMode .playingPane #lyrics_bt {
+    display: none !important;
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .que_wrappers,
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .lyrics_wrappers {
+    z-index: 85;
+    inset: calc(env(safe-area-inset-top) + 8px) 8px calc(env(safe-area-inset-bottom) + 8px);
+  }
+  .mobilePanelClose {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 4;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--textColor);
+    display: grid;
+    place-items: center;
+  }
+  /* Floating library widgets must clear the compact player and bottom nav. */
+  #app.mobileMode .PlaylistWidget.widget,
+  #app.mobileMode .Equalizer.widget {
+    bottom: calc(160px + env(safe-area-inset-bottom));
+    max-height: calc(100dvh - 180px - env(safe-area-inset-bottom));
+    overflow: auto;
+  }
+  /* Landscape phones keep the cover on the left and the time/controls on the
+     right so nothing overlaps or leaves the viewport. */
+  @media (orientation: landscape) and (max-height: 600px) {
+    body.fullScreenPlayingPane #app.mobileMode .playingPane .left_pane_section {
+      inset: 0 auto 0 4vw;
+      width: 46vw;
+      height: 100dvh;
+      padding: 0;
+    }
+    body.fullScreenPlayingPane #app.mobileMode .playingPane .album_art_wrapper {
+      left: 50%;
+      top: 50%;
+      width: min(58vh, 30vw);
+      height: min(58vh, 30vw);
+      transform: translate(-50%, -50%);
+      border-radius: 18px;
+    }
+    body.fullScreenPlayingPane #app.mobileMode .playingPane .track_info {
+      left: 4%;
+      right: 4%;
+      top: calc(50% + min(29vh, 15vw) + 10px);
+      max-width: none;
+    }
+    body.fullScreenPlayingPane #app.mobileMode .playingPane .track_info .track_title {
+      font-size: 18px;
+    }
+    body.fullScreenPlayingPane #app.mobileMode .playingPane .track_info .track_artist {
+      font-size: 12px;
+    }
+    body.fullScreenPlayingPane #app.mobileMode .playingPane .center_pane_section {
+      inset: 0 3vw 0 auto;
+      width: 44vw;
+      height: 100dvh;
+      padding: 0;
+      justify-content: center;
+    }
+    body.fullScreenPlayingPane #app.mobileMode .playingPane .TrackBar {
+      height: 38px;
+      margin-bottom: 12px;
+    }
+    body.fullScreenPlayingPane #app.mobileMode .playingPane .center_pane_section .t_actions {
+      gap: 4px;
+      padding: 0;
+      justify-content: space-between;
+    }
+    body.fullScreenPlayingPane #app.mobileMode .playingPane #prev_bt,
+    body.fullScreenPlayingPane #app.mobileMode .playingPane #next_bt,
+    body.fullScreenPlayingPane #app.mobileMode .playingPane #shuffle_bt,
+    body.fullScreenPlayingPane #app.mobileMode .playingPane #repeat_bt {
+      width: 38px !important;
+      height: 38px !important;
+      min-width: 38px;
+      min-height: 38px;
+    }
+    body.fullScreenPlayingPane #app.mobileMode .playingPane .center_pane_section #toggle_play button {
+      width: 48px;
+      height: 48px;
+    }
+    body.fullScreenPlayingPane #app.mobileMode .playingPane .mobilePlayerTopButton {
+      width: 38px;
+      height: 38px;
+      min-width: 38px;
+      min-height: 38px;
+    }
+    body.fullScreenPlayingPane #app.mobileMode .playingPane .mobilePlayerMenu {
+      top: calc(env(safe-area-inset-top) + 56px);
+    }
+  }
+  #app.mobileMode .home.tab {
+    height: 100%;
+    overflow-y: auto !important;
+    padding: 2px 2px 12px;
+  }
+  #app.mobileMode .home .mobileHomeWelcome {
+    margin-bottom: 10px;
+    padding: 10px 12px;
+    border-radius: 14px;
+  }
+  #app.mobileMode .home .mobileHomeWelcome h1 {
+    margin: 1px 0 3px;
+    font-size: 18px;
+  }
+  #app.mobileMode .home .mobileHomeWelcome p {
+    font-size: 11px;
+  }
+  #app.mobileMode .home .mobileHomeWelcome .mobileHomeEyebrow {
+    font-size: 9px;
+  }
+  #app.mobileMode .home .stats {
+    overflow: visible !important;
+    margin: 4px 0 14px;
+    padding: 0;
+  }
+  #app.mobileMode .home .stats_title {
+    margin: 0 2px 8px !important;
+  }
+  #app.mobileMode .home .stats_title h1 {
+    font-size: 18px !important;
+    letter-spacing: .01em;
+  }
+  #app.mobileMode .home .mixesWrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 0 2px 10px;
+    overflow: visible;
+  }
+  #app.mobileMode .home .MixCard {
+    margin: 0;
+    padding: 11px;
+    border: 1px solid var(--borderColor);
+    border-radius: 14px;
     background: color-mix(in srgb, var(--secondaryColor) 88%, transparent);
   }
-  .home .MixCard .cardTitle > .flex {
+  #app.mobileMode .home .MixCard .cardTitle > .flex {
     align-items: flex-start;
-    gap: 10px;
+    gap: 8px;
   }
-  .home .MixCard .cardTitle h2 {
-    font-size: 16px;
+  #app.mobileMode .home .MixCard .cardTitle h2 {
+    font-size: 15px;
   }
-  .home .MixCard .cover {
-    width: 70px;
-    height: 70px;
+  #app.mobileMode .home .MixCard .cover {
+    width: 56px;
+    height: 56px;
     object-fit: cover;
   }
-  .home .mobileMixesEmpty {
+  #app.mobileMode .home .mobileMixesEmpty {
     margin: 0;
-    padding: 18px;
+    padding: 14px;
     border: 1px dashed var(--borderColor);
-    border-radius: 16px;
+    border-radius: 14px;
+    font-size: 13px;
     line-height: 1.5;
     opacity: .78;
   }
-  .home .overLayedTracks.horizontal_overlay {
+  #app.mobileMode .home .overLayedTracks.horizontal_overlay {
     box-sizing: border-box;
     max-width: 100%;
-    padding: 10px 12px 16px;
+    padding: 8px 10px 12px;
     overflow-x: auto;
     overflow-y: visible;
-    scroll-padding-inline: 12px;
+    scroll-padding-inline: 10px;
     -webkit-overflow-scrolling: touch;
   }
-  .home .overLayedTracks.horizontal_overlay .card {
-    flex: 0 0 140px;
+  #app.mobileMode .home .overLayedTracks.horizontal_overlay .card {
+    flex: 0 0 132px;
     margin-left: 0;
   }
-  .home .overLayedTracks.horizontal_overlay .card:not(:first-child) {
+  #app.mobileMode .home .overLayedTracks.horizontal_overlay .card:not(:first-child) {
     margin-left: 0;
   }
-  .home .overLayedTracks.horizontal_overlay .card:hover,
-  .home .overLayedTracks.horizontal_overlay .card:hover ~ .card {
+  #app.mobileMode .home .overLayedTracks.horizontal_overlay .card:hover,
+  #app.mobileMode .home .overLayedTracks.horizontal_overlay .card:hover ~ .card {
     transform: none;
   }
 }

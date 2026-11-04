@@ -104,7 +104,7 @@ const mutations = {
         state.customQueue.push(state.playingTrackInfo.track);
       }
       sendMessageToNode("playingTrack", payload.track);
-      updateMediaInfo(payload.track);
+      updateMediaInfo(payload.track, true);
       localStorage.setItem("lastPlayedTrack", JSON.stringify(payload.track));
     }
   },
@@ -201,9 +201,11 @@ const mutations = {
       state.audioState.playing = false;
       document.querySelector("audio")?.pause();
     }
+    updateMediaInfo(state.playingTrackInfo.track, state.audioState.playing);
   },
   setPlayingState(state: any, payload: boolean) {
     state.audioState.playing = payload;
+    updateMediaInfo(state.playingTrackInfo.track, state.audioState.playing);
   },
 };
 
@@ -415,6 +417,7 @@ const actions: ActionTree<PlaybackManagerStateInterface, any> = {
     } else {
       document.querySelector("audio")?.pause();
     }
+    updateMediaInfo(state.playingTrackInfo.track, state.audioState.playing);
   },
   toggleRepeat({ state }) {
     state.audioState.repeat = !state.audioState.repeat;

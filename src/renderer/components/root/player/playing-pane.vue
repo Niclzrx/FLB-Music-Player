@@ -1,5 +1,74 @@
 <template>
-  <div class="playingPane bg2">
+  <div class="playingPane bg2" :style="mobilePlayerDragStyle" @click="closeMobileMenu">
+    <button
+      v-if="isMobile && !mobileFullPlayer"
+      class="mobilePlayerHandle"
+      :class="{ 'is-dragging': mobileDragActive }"
+      type="button"
+      :aria-label="t('player.expand')"
+      :title="t('player.expand')"
+      @pointerdown="startMobilePlayerDrag"
+      @pointermove="moveMobilePlayerDrag"
+      @pointerup="endMobilePlayerDrag"
+      @pointercancel="cancelMobilePlayerDrag"
+      @click.stop="handleMobileHandleClick"
+    >
+      <span />
+    </button>
+    <template v-if="isMobile && mobileFullPlayer && !playingPaneExpanded">
+      <button
+        id="mobilePlayerOptions"
+        class="mobilePlayerTopButton"
+        type="button"
+        :aria-label="t('player.options')"
+        :title="t('player.options')"
+        @click.stop="mobileMenuOpen = !mobileMenuOpen"
+      >
+        <base-icon icon="dots-three" :size="24" />
+      </button>
+      <button
+        id="mobilePlayerCollapse"
+        class="mobilePlayerTopButton"
+        type="button"
+        :aria-label="t('player.collapse')"
+        :title="t('player.collapse')"
+        @click.stop="togglePlayerMode"
+      >
+        <base-icon icon="caret-down" :size="24" />
+      </button>
+      <transition
+        enter-active-class="animated fadeIn faster"
+        leave-active-class="animated fadeOut faster"
+      >
+        <div v-if="mobileMenuOpen" class="mobilePlayerMenu" @click.stop>
+          <button type="button" @click.stop="runMobilePlayerAction('favorite')">
+            <base-icon icon="heart" :size="19" :weight="isInFavorites ? 'fill' : 'regular'" />
+            <span>{{ isInFavorites ? t('player.unfavorite') : t('player.favorite') }}</span>
+          </button>
+          <button type="button" @click.stop="runMobilePlayerAction('playlist')">
+            <base-icon icon="playlist" :size="19" />
+            <span>{{ t('player.playlist') }}</span>
+          </button>
+          <button type="button" @click.stop="runMobilePlayerAction('equalizer')">
+            <base-icon icon="faders" :size="19" />
+            <span>{{ t('player.equalizer') }}</span>
+          </button>
+          <button v-if="playingTrackLyrics" type="button" @click.stop="runMobilePlayerAction('lyrics')">
+            <base-icon icon="microphone" :size="19" />
+            <span>{{ t('player.lyrics') }}</span>
+          </button>
+          <button type="button" @click.stop="runMobilePlayerAction('queue')">
+            <base-icon icon="queue" :size="19" />
+            <span>{{ t('player.queue') }}</span>
+          </button>
+          <button type="button" @click.stop="runMobilePlayerAction('artist')">
+            <base-icon icon="user" :size="19" />
+            <span>{{ t('player.goToArtist') }}</span>
+          </button>
+        </div>
+      </transition>
+    </template>
+
     <div class="flex split">
       <div class="left_pane_section">
         <album-art-wrapper
@@ -8,17 +77,20 @@
         />
         <img class="album_art_blurred" :src="albumArt" />
 
-        <div class="track_info">
+        <div class="track_info" @click="handleTrackInfoTap">
           <p class="track_title">
             {{ playingTrack.defaultTitle }}
           </p>
           <p
             :title="t('player.goToArtist')"
             class="track_artist"
-            @click="goToArtist(playingTrack.defaultArtist)"
+            @click.stop="handleArtistTap"
           >
             {{ playingTrack.defaultArtist }}
           </p>
+          <span v-if="isMobile" class="mobilePlayerTimer">
+            {{ mobileCurrentTime }}
+          </span>
         </div>
       </div>
       <div class="center_pane_section">
@@ -126,11 +198,31 @@
         v-if="playingPaneExpanded && !showLyrics"
         class="que_wrappers round15"
       >
+        <button
+          v-if="isMobile"
+          class="mobilePanelClose"
+          type="button"
+          :aria-label="t('player.close')"
+          :title="t('player.close')"
+          @click.stop="closeMobilePanel"
+        >
+          <base-icon icon="x" :size="20" />
+        </button>
         <h1>{{ t('player.queue') }}</h1>
         <div class="toggle_queue" />
         <queued-tracks />
       </div>
       <div v-if="playingPaneExpanded && showLyrics" class="lyrics_wrappers">
+        <button
+          v-if="isMobile"
+          class="mobilePanelClose"
+          type="button"
+          :aria-label="t('player.close')"
+          :title="t('player.close')"
+          @click.stop="closeMobilePanel"
+        >
+          <base-icon icon="x" :size="20" />
+        </button>
         <h1>{{ t('player.lyrics') }}</h1>
         <lyrics />
       </div>
@@ -140,6 +232,8 @@
 
 <script>
 import { mapActions, mapMutations } from "vuex";
+import { isMobileApp } from "@/platform/ipc";
+import { setMobileMediaActionHandler } from "@/platform/mobile-ipc";
 import { sendMessageToNode, toFileUrl } from "@/renderer/utils";
 import { initializeAudio } from "../equalizer/equalizer";
 /* eslint-disable */
@@ -159,9 +253,23 @@ export default {
       isOnline: false,
       playingPaneExpanded: false,
       showLyrics: false,
+      mobileFullPlayer: false,
+      mobileMenuOpen: false,
+      mobileCurrentTime: "0:00",
+      mobileClockAudio: null,
+      mobileClockHandler: null,
+      mobileDragStartY: null,
+      mobileDragDistance: 0,
+      mobileDragActive: false,
+      suppressMobileHandleClick: false,
+      mobileMediaActionUnsubscribe: null,
     };
   },
   computed: {
+    mobilePlayerDragStyle() {
+      if (!this.mobileDragActive || !this.mobileDragDistance) return {};
+      return { transform: `translateY(${this.mobileDragDistance}px)` };
+    },
     playingTrack() {
       return this.$store.state.PlaybackManger.playingTrackInfo.track;
     },
@@ -181,6 +289,9 @@ export default {
     },
     miniMode() {
       return this.$store.state.UIController.UIProperties.miniMode;
+    },
+    isMobile() {
+      return isMobileApp;
     },
     playingTrackLyrics() {
       return (
@@ -225,8 +336,75 @@ export default {
       "findAndGoToArtist",
       "getLyrics",
     ]),
+    resetMobilePlayerDrag() {
+      this.mobileDragStartY = null;
+      this.mobileDragDistance = 0;
+      this.mobileDragActive = false;
+    },
+    startMobilePlayerDrag(event) {
+      if (!this.isMobile || this.mobileFullPlayer) return;
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      this.mobileDragStartY = event.clientY;
+      this.mobileDragDistance = 0;
+      this.mobileDragActive = false;
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch (error) {
+        // Older WebViews may not support pointer capture.
+      }
+    },
+    moveMobilePlayerDrag(event) {
+      if (this.mobileDragStartY === null) return;
+      const distance = event.clientY - this.mobileDragStartY;
+      if (distance < -6) {
+        this.mobileDragActive = true;
+        this.mobileDragDistance = Math.max(distance, -170);
+        if (event.cancelable) event.preventDefault();
+      }
+    },
+    endMobilePlayerDrag() {
+      if (this.mobileDragStartY === null) return;
+      const wasDragging = this.mobileDragActive;
+      const shouldExpand = wasDragging && this.mobileDragDistance <= -42;
+      this.resetMobilePlayerDrag();
+      if (wasDragging) {
+        // The browser can fire a click after the pointer gesture; ignore it.
+        this.suppressMobileHandleClick = true;
+        setTimeout(() => {
+          this.suppressMobileHandleClick = false;
+        }, 350);
+      }
+      if (shouldExpand) this.togglePlayerMode();
+    },
+    cancelMobilePlayerDrag() {
+      this.resetMobilePlayerDrag();
+    },
+    handleMobileHandleClick() {
+      if (this.suppressMobileHandleClick) return;
+      this.togglePlayerMode();
+    },
+    handleMobileMediaAction(action) {
+      if (action === "toggle") this.toggleIsPlaying();
+      else if (action === "play") {
+        if (!this.audioState.playing) this.toggleIsPlaying();
+      } else if (action === "pause") {
+        if (this.audioState.playing) this.toggleIsPlaying();
+      } else if (action === "next") this.determineNextTrack("next");
+      else if (action === "previous") this.determineNextTrack("prev");
+    },
     togglePlayerMode() {
+      this.resetMobilePlayerDrag();
       document.body.classList.toggle("fullScreenPlayingPane");
+      const fullPlayer = document.body.classList.contains("fullScreenPlayingPane");
+      this.mobileMenuOpen = false;
+      if (this.isMobile) {
+        // Expanding the mobile player shows only the player. The queue and
+        // lyrics are opened explicitly from the options menu.
+        this.mobileFullPlayer = fullPlayer;
+        this.playingPaneExpanded = false;
+        this.showLyrics = false;
+        return;
+      }
       this.playingPaneExpanded = !this.playingPaneExpanded;
       this.UIcontrollerSetPropertyValue({
         property: "currentSidePaneTab",
@@ -237,7 +415,68 @@ export default {
       sendMessageToNode("toggleMiniMode", !this.miniMode);
       this.UIcontrollerToggleProperty("miniMode");
       document.body.classList.remove("fullScreenPlayingPane");
+      this.resetMobilePlayerDrag();
+      this.mobileFullPlayer = false;
       this.playingPaneExpanded = false;
+    },
+    handleTrackInfoTap() {
+      if (this.isMobile) this.togglePlayerMode();
+    },
+    handleArtistTap() {
+      if (this.isMobile && this.mobileFullPlayer) this.collapseMobilePlayer();
+      this.goToArtist(this.playingTrack.defaultArtist);
+    },
+    closeMobileMenu() {
+      if (this.mobileMenuOpen) this.mobileMenuOpen = false;
+    },
+    collapseMobilePlayer() {
+      document.body.classList.remove("fullScreenPlayingPane");
+      this.resetMobilePlayerDrag();
+      this.mobileFullPlayer = false;
+      this.mobileMenuOpen = false;
+      this.playingPaneExpanded = false;
+      this.showLyrics = false;
+    },
+    closeMobilePanel() {
+      this.playingPaneExpanded = false;
+      this.showLyrics = false;
+    },
+    runMobilePlayerAction(action) {
+      this.mobileMenuOpen = false;
+      if (action === "favorite") this.toggleFromFavorites();
+      else if (action === "playlist") {
+        // The playlist picker belongs to the library view and cannot be on top
+        // of the full player, so return to the compact player first.
+        this.collapseMobilePlayer();
+        this.showPlaylistAdder();
+      } else if (action === "equalizer") this.UIcontrollerToggleProperty("showEqualizerWidget");
+      else if (action === "lyrics") {
+        this.playingPaneExpanded = true;
+        this.showLyrics = true;
+      } else if (action === "queue") {
+        this.playingPaneExpanded = true;
+        this.showLyrics = false;
+      } else if (action === "artist") {
+        this.collapseMobilePlayer();
+        this.goToArtist();
+      }
+    },
+    formatMobileTime(seconds) {
+      if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+      const minutes = Math.floor(seconds / 60);
+      const rest = Math.floor(seconds % 60);
+      return `${minutes}:${rest < 10 ? "0" : ""}${rest}`;
+    },
+    bindMobileClock() {
+      const audio = document.querySelector("#audioTag");
+      if (!audio) return;
+      this.mobileClockAudio = audio;
+      this.mobileClockHandler = () => {
+        this.mobileCurrentTime = this.formatMobileTime(audio.currentTime || 0);
+      };
+      audio.addEventListener("timeupdate", this.mobileClockHandler);
+      audio.addEventListener("loadedmetadata", this.mobileClockHandler);
+      this.mobileClockHandler();
     },
     goToArtist() {
       document.querySelector("#Artists").click();
@@ -288,6 +527,8 @@ export default {
   },
   mounted() {
     initializeAudio()
+    this.bindMobileClock();
+    this.mobileFullPlayer = document.body.classList.contains("fullScreenPlayingPane");
     // the lyrics of the track that was restored with the app
     this.getLyrics();
     window.addEventListener("keydown", (e) => {
@@ -312,18 +553,23 @@ export default {
       }
     });
     document.querySelector("body").classList.add("playingPaneLoaded");
+    if (this.isMobile) {
+      this.mobileMediaActionUnsubscribe = setMobileMediaActionHandler((action) =>
+        this.handleMobileMediaAction(action)
+      );
+    }
 
     const actionHandlers = [
       [
         "play",
         () => {
-          this.toggleIsPlaying();
+          if (!this.audioState.playing) this.toggleIsPlaying();
         },
       ],
       [
         "pause",
         () => {
-          this.toggleIsPlaying();
+          if (this.audioState.playing) this.toggleIsPlaying();
         },
       ],
       [
@@ -347,6 +593,21 @@ export default {
           `The media session action "${action}" is not supported yet.`
         );
       }
+    }
+  },
+  beforeDestroy() {
+    if (this.mobileClockAudio && this.mobileClockHandler) {
+      this.mobileClockAudio.removeEventListener("timeupdate", this.mobileClockHandler);
+      this.mobileClockAudio.removeEventListener("loadedmetadata", this.mobileClockHandler);
+    }
+    if (this.mobileMediaActionUnsubscribe) {
+      this.mobileMediaActionUnsubscribe();
+      this.mobileMediaActionUnsubscribe = null;
+    }
+    // Never leave the shell stuck in full-player mode without a player.
+    if (this.isMobile) {
+      this.resetMobilePlayerDrag();
+      document.body.classList.remove("fullScreenPlayingPane");
     }
   },
 };

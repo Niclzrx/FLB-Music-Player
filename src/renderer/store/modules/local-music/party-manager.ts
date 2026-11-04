@@ -377,6 +377,12 @@ const actions: ActionTree<PartyManagerStateInterface, any> = {
     const attempt = ++joinAttemptSequence;
     const code = String(payload.code || "").replace(/\D/g, "").slice(0, 6);
     const name = String(payload.name || "").trim().slice(0, 24);
+    // A phone can join with the code alone (discovery/QR), but a PC needs
+    // the address to reach a party hosted on another device.
+    if (!isMobileApp && !String(payload.hostUrl || "").trim()) {
+      commit("setConnection", { connection: "error", error: "party.errorAddress" });
+      return;
+    }
     if (code.length !== 6) {
       commit("setConnection", { connection: "error", error: "party.errorCode" });
       return;

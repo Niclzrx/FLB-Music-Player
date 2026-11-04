@@ -84,9 +84,10 @@ export class MixGenerator {
     });
     forgottenTracks = forgottenTracks.splice(0, 10);
     if (forgottenTracks.length > 0) {
+      const secondTrack = forgottenTracks[1];
       const mix: mixTyping = {
         name: 'Tracks you might have forgotten 🤯',
-        info: `Remember 👉 ${forgottenTracks[0].defaultTitle}, ${forgottenTracks[1].defaultTitle} and others...`,
+        info: `Remember 👉 ${forgottenTracks[0].defaultTitle}${secondTrack ? `, ${secondTrack.defaultTitle}` : ''} and others...`,
         tracks: forgottenTracks
       };
       this.mixes.push(mix);
@@ -98,9 +99,10 @@ export class MixGenerator {
     allTracksCopy.reverse();
     const topTenRecentlyAddedTracks = allTracksCopy.splice(0, 10);
     if (topTenRecentlyAddedTracks.length > 0) {
+      const secondTrack = topTenRecentlyAddedTracks[1];
       const mix: mixTyping = {
         name: 'Fresh and Juicy 🧃',
-        info: `Newly added tracks like 👉 ${topTenRecentlyAddedTracks[0].defaultTitle}, ${topTenRecentlyAddedTracks[1].defaultTitle} and others...`,
+        info: `Newly added tracks like 👉 ${topTenRecentlyAddedTracks[0].defaultTitle}${secondTrack ? `, ${secondTrack.defaultTitle}` : ''} and others...`,
         tracks: removeDuplicates(topTenRecentlyAddedTracks, 'defaultTitle')
       };
       this.mixes.push(mix);
