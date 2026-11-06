@@ -5,7 +5,7 @@ import UIController from "./uicontroller";
 import TabsManager from "./tabs-manager";
 import TrackSelector from "./track-selector";
 import { sendMessageToNode, trackSource } from "@/renderer/utils";
-import { fadeOutTrack } from "@/renderer/utils/track-fade";
+import { beginCrossfade, cancelCrossfade } from "@/renderer/utils/track-fade";
 import { removeDuplicates, sortArrayOfObjects } from "@/shared-utils";
 import { geniusSongType, TrackLyricsType, TrackType } from "@/types";
 import { updateMediaInfo } from "@/renderer/global-activities/update-windows-media-info";
@@ -51,11 +51,11 @@ const state: PlaybackManagerStateInterface = {
   customQueue: [],
 };
 /**
- * The change of track is not abrupt: the track that is left behind keeps
- * ringing for a moment with the volume going down, while the new one is
- * already playing at full volume. A track that ends by itself, or that
- * cannot be played, is not sounding anymore when the next one is chosen, so
- * it has nothing left to fade.
+ * The change of track is a real crossfade: the track that is left behind
+ * keeps ringing for a moment with its volume going down while the new one
+ * rises from silence. A track that ends by itself, or that cannot be played,
+ * is not sounding anymore when the next one is chosen, so it has nothing left
+ * to fade.
  */
 function fadeOutTheTrackBeingLeft(
   previousTrack: TrackType | null,
@@ -67,7 +67,7 @@ function fadeOutTheTrackBeingLeft(
   // the same file twice in a row is not a change of track, the player
   // element keeps playing without loading anything
   if (trackSource(nextTrack) === audio.src) return;
-  fadeOutTrack(audio);
+  beginCrossfade(audio);
 }
 
 const mutations = {
@@ -199,12 +199,17 @@ const mutations = {
       document.querySelector("audio")?.play();
     } else {
       state.audioState.playing = false;
-      document.querySelector("audio")?.pause();
+      const audio = document.querySelector("audio") as HTMLAudioElement | null;
+      cancelCrossfade(audio);
+      audio?.pause();
     }
     updateMediaInfo(state.playingTrackInfo.track, state.audioState.playing);
   },
   setPlayingState(state: any, payload: boolean) {
     state.audioState.playing = payload;
+    if (!payload) {
+      cancelCrossfade(document.querySelector("audio") as HTMLAudioElement | null);
+    }
     updateMediaInfo(state.playingTrackInfo.track, state.audioState.playing);
   },
 };
@@ -412,10 +417,12 @@ async function saveLyricsToFile(
 const actions: ActionTree<PlaybackManagerStateInterface, any> = {
   toggleIsPlaying({ state }) {
     state.audioState.playing = !state.audioState.playing;
+    const audio = document.querySelector("audio") as HTMLAudioElement | null;
     if (state.audioState.playing) {
-      document.querySelector("audio")?.play();
+      audio?.play();
     } else {
-      document.querySelector("audio")?.pause();
+      cancelCrossfade(audio);
+      audio?.pause();
     }
     updateMediaInfo(state.playingTrackInfo.track, state.audioState.playing);
   },

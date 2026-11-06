@@ -6,7 +6,7 @@
     >
       <base-notification
         v-for="notification in notifications"
-        :key="notification.title"
+        :key="notification.id || notification.groupKey || notification.title"
         :notification="notification"
       />
     </transition-group>
@@ -20,11 +20,6 @@ import { mapMutations } from 'vuex';
 export default {
   name: 'Notifications',
 
-  data() {
-    return {
-      progressNotificationSent: false
-    };
-  },
   computed: {
     notifications() {
       return this.$store.state.NotificationManager.notifications;
@@ -38,6 +33,9 @@ export default {
       this.pushNotification(notification);
     });
     ipcRenderer.on('closeNotification', (e, title) => {
+      // The main process may send either a stable group key or, on desktop,
+      // the translation key of the title. Both are accepted.
+      this.removeNotification(title);
       this.removeNotification(this.t(title));
     });
   }
@@ -50,5 +48,12 @@ export default {
   z-index: 100;
   left: 50%;
   transform: translateX(-50%);
+}
+@media (max-width: 700px), (hover: none) and (pointer: coarse) {
+  .Notifications {
+    top: calc(env(safe-area-inset-top) + 5px);
+    width: min(100vw - 16px, 420px);
+    max-width: 100%;
+  }
 }
 </style>

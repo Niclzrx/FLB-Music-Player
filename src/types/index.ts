@@ -164,14 +164,23 @@ export interface SearchResultsType {
   albums: Array<AlbumType>;
 }
 
+export interface NotificationProgressType {
+  current: number;
+  total: number;
+}
 export interface NotificationType {
+  /** Stable identity used by the notification list and by grouped updates. */
+  id?: string;
+  /** Notifications with the same group key update one card in place. */
+  groupKey?: string;
   title: string;
   subTitle: string | null;
   type: NotificationTypes;
-  isPersistent: true;
+  isPersistent?: boolean;
+  progress?: NotificationProgressType | null;
   values?: Record<string, string | number>;
 }
-export type NotificationTypes = "normal" | "success" | "warning";
+export type NotificationTypes = "normal" | "success" | "warning" | "danger";
 export type UIcontrollerPropertiesType =
   | "showSettings"
   | "showTagEditor"

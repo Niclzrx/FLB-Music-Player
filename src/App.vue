@@ -25,7 +25,7 @@
         <router-view />
       </div>
       <!-- The party takes over the whole page, with the rules of the mode -->
-      <party-view v-if="!miniMode && partyPage" class="h-100" />
+      <party-view v-if="!miniMode && partyPage" ref="partyView" class="h-100" />
     </section>
     <nav v-if="isMobile" class="mobileBottomNav" aria-label="Primary navigation">
       <button :class="{ active: currentPage === 'My Music' }" @click="goToPage('My Music')">
@@ -48,6 +48,7 @@
     <playing-pane
       class="mb5 mt5"
       v-if="playingTrack && !guestInParty"
+      ref="mobilePlayer"
       @fullPlayer="reactToFullPlayer"
     />
     <bg v-if="theme === 'fancy'" />
@@ -55,12 +56,16 @@
 </template>
 <script>
 import { isMobileApp } from '@/platform/ipc';
+import { App as CapacitorApp } from '@capacitor/app';
 export default {
   name: "App",
   data() {
     return {
       showOnboard: !(isMobileApp && localStorage.getItem('flb-mobile-onboard-complete') === 'true'),
       fullPlayer: false,
+      mobileRouteStack: [],
+      mobileBackListener: null,
+      mobileRouteBackPending: false,
     };
   },
   computed: {
@@ -96,6 +101,14 @@ export default {
       return this.$store.state.UIController.UIProperties.currentPage;
     },
   },
+  watch: {
+    $route(to, from) {
+      if (!this.isMobile || this.mobileRouteBackPending) return;
+      if (!from.path || from.path === to.path) return;
+      this.mobileRouteStack.push(from.fullPath);
+      if (this.mobileRouteStack.length > 20) this.mobileRouteStack.shift();
+    },
+  },
   methods: {
     UIcontrollerToggleProperty(property) {
       this.$store.commit('UIcontrollerToggleProperty', property);
@@ -112,11 +125,76 @@ export default {
           property: 'currentMainTab',
           newValue: 'Home',
         });
-        if (this.$route.path !== '/') this.$router.push('/');
+        if (this.$route.path !== '/') this.$router.push('/').catch(() => {});
         return;
       }
-      if (page === 'FLBing') this.$router.push('/meld');
-      else if (this.$route.path !== '/') this.$router.push('/');
+      if (page === 'FLBing') this.$router.push('/meld').catch(() => {});
+      else if (this.$route.path !== '/') this.$router.push('/').catch(() => {});
+    },
+    /**
+     * Android back button, in priority order:
+     * top-level overlays, player menu/panels, expanded player, party panels,
+     * internal pages, then exit from the main screen.
+     */
+    handleAndroidBack() {
+      if (!this.isMobile) return;
+      const overlayProperties = [
+        'showSettings',
+        'showTagEditor',
+        'showPlaylistWidget',
+        'showEqualizerWidget',
+        'showImageSearcher',
+        'showFeedbackWidget',
+      ];
+      const properties = this.$store.state.UIController.UIProperties;
+      const openProperty = overlayProperties.find((property) => properties[property]);
+      if (openProperty) {
+        this.$store.commit('UIcontrollerSetPropertyValue', {
+          property: openProperty,
+          newValue: false,
+        });
+        return;
+      }
+      const player = this.$refs.mobilePlayer;
+      if (player && typeof player.handleAndroidBack === 'function' && player.handleAndroidBack()) {
+        return;
+      }
+      const party = this.$refs.partyView;
+      if (party && typeof party.handleAndroidBack === 'function' && party.handleAndroidBack()) {
+        return;
+      }
+      if (properties.multiSelectMode) {
+        this.$store.commit('UIcontrollerSetPropertyValue', {
+          property: 'multiSelectMode',
+          newValue: false,
+        });
+        return;
+      }
+      const trackOptions = document.querySelector('.trackOptions');
+      if (trackOptions && trackOptions.style.height && trackOptions.style.height !== '0px') {
+        trackOptions.style.height = '0px';
+        return;
+      }
+      if (this.currentPage !== 'My Music') {
+        this.goToPage('My Music');
+        return;
+      }
+      if (this.$route.path !== '/') {
+        this.returnToPreviousRoute();
+        return;
+      }
+      CapacitorApp.exitApp();
+    },
+    returnToPreviousRoute() {
+      const previous = this.mobileRouteStack.pop();
+      const target = previous && previous !== this.$route.fullPath ? previous : '/';
+      this.mobileRouteBackPending = true;
+      const done = () => {
+        this.$nextTick(() => {
+          this.mobileRouteBackPending = false;
+        });
+      };
+      this.$router.replace(target).then(done).catch(done);
     },
     cleanUp() {
       if (document.querySelector(".trackOptions")) {
@@ -127,6 +205,22 @@ export default {
       this.fullPlayer = fullPlayer;
       console.log(this.fullPlayer);
     },
+  },
+  mounted() {
+    if (!this.isMobile) return;
+    CapacitorApp.addListener("backButton", () => this.handleAndroidBack())
+      .then((listener) => {
+        this.mobileBackListener = listener;
+      })
+      .catch((error) => {
+        console.warn("Could not listen to the Android back button", error);
+      });
+  },
+  beforeDestroy() {
+    if (this.mobileBackListener) {
+      this.mobileBackListener.remove();
+      this.mobileBackListener = null;
+    }
   },
 };
 </script>
@@ -509,6 +603,101 @@ body {
   body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .mobilePlayerHandle.is-dragging span {
     width: 42px;
     background: var(--accentColor);
+  }
+  /* The compact content follows the finger, while the preview of the full
+     player grows underneath. It is a visual hand-off only: no audio or
+     controls are duplicated. */
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane > .split {
+    opacity: var(--mobile-compact-opacity, 1);
+    transform: translateY(var(--mobile-player-drag-y, 0px));
+    transition: opacity .18s ease, transform .18s ease;
+  }
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane .mobilePlayerHandle {
+    opacity: var(--mobile-compact-opacity, 1);
+    transform: translate(-50%, var(--mobile-player-drag-y, 0px));
+    transition: opacity .18s ease, transform .18s ease;
+  }
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane.mobilePlayerDragging > .split,
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane.mobilePlayerDragging .mobilePlayerHandle {
+    transition: none;
+  }
+  body:not(.fullScreenPlayingPane) #app.mobileMode .playingPane.mobilePlayerExpandPreviewing {
+    z-index: 69;
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .mobilePlayerExpandPreview {
+    --mobile-preview-cover-size: min(68vw, 300px);
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+    color: var(--textColor);
+    background:
+      radial-gradient(circle at 50% 14%, color-mix(in srgb, var(--accentColor) 16%, transparent), transparent 42%),
+      color-mix(in srgb, var(--appBackground) 82%, transparent);
+    opacity: var(--mobile-preview-progress, 0);
+    transition: opacity .2s ease;
+  }
+  .mobilePlayerPreviewBackdrop {
+    position: absolute;
+    left: -8vw;
+    top: -16vh;
+    width: 116vw;
+    height: 88vh;
+    object-fit: cover;
+    opacity: .34;
+    filter: blur(82px) saturate(125%);
+    transform: scale(1.08);
+  }
+  .mobilePlayerPreviewCover {
+    position: absolute;
+    left: 50%;
+    top: calc(env(safe-area-inset-top) + 7vh);
+    width: var(--mobile-preview-cover-size);
+    aspect-ratio: 1;
+    overflow: hidden;
+    border-radius: 22px;
+    transform: translateX(-50%);
+    box-shadow: 0 26px 76px #0009;
+  }
+  .mobilePlayerPreviewCover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .mobilePlayerPreviewInfo {
+    position: absolute;
+    left: 20px;
+    right: 20px;
+    top: calc(env(safe-area-inset-top) + 7vh + var(--mobile-preview-cover-size) + 20px);
+    text-align: center;
+  }
+  .mobilePlayerPreviewInfo p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 22px;
+    line-height: 1.2;
+    font-weight: 600;
+  }
+  .mobilePlayerPreviewInfo span {
+    display: block;
+    margin-top: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 15px;
+    line-height: 1.25;
+    opacity: .76;
+  }
+  body.fullScreenPlayingPane #app.mobileMode .playingPane .mobilePlayerTopButton {
+    transition: none !important;
+    transform: none !important;
   }
   .LocalMusic .SidePane {
     display: none !important;
@@ -1036,6 +1225,27 @@ body {
     }
     body.fullScreenPlayingPane #app.mobileMode .playingPane .mobilePlayerMenu {
       top: calc(env(safe-area-inset-top) + 56px);
+    }
+    .mobilePlayerExpandPreview {
+      --mobile-preview-cover-size: min(58vh, 30vw);
+      --mobile-preview-cover-half: min(29vh, 15vw);
+    }
+    .mobilePlayerPreviewCover {
+      left: 25vw;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      border-radius: 18px;
+    }
+    .mobilePlayerPreviewInfo {
+      left: 4%;
+      right: 52%;
+      top: calc(50% + var(--mobile-preview-cover-half) + 10px);
+    }
+    .mobilePlayerPreviewInfo p {
+      font-size: 18px;
+    }
+    .mobilePlayerPreviewInfo span {
+      font-size: 12px;
     }
   }
   #app.mobileMode .home.tab {

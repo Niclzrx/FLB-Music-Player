@@ -1,5 +1,25 @@
 <template>
-  <div class="playingPane bg2" :style="mobilePlayerDragStyle" @click="closeMobileMenu">
+  <div
+    class="playingPane bg2"
+    :class="{ 'mobilePlayerDragging': mobileDragActive, 'mobilePlayerExpandPreviewing': isMobile && !mobileFullPlayer && mobileExpandProgress > 0 }"
+    :style="mobilePlayerDragStyle"
+    @click="closeMobileMenu"
+  >
+    <div
+      v-if="isMobile && (mobileExpandProgress > 0 || mobilePreviewHold)"
+      class="mobilePlayerExpandPreview"
+      :style="{ '--mobile-preview-progress': mobileExpandProgress }"
+      aria-hidden="true"
+    >
+      <img class="mobilePlayerPreviewBackdrop" :src="albumArt" alt="" />
+      <div class="mobilePlayerPreviewCover">
+        <img :src="albumArt" alt="" />
+      </div>
+      <div class="mobilePlayerPreviewInfo">
+        <p>{{ playingTrack.defaultTitle }}</p>
+        <span>{{ playingTrack.defaultArtist }}</span>
+      </div>
+    </div>
     <button
       v-if="isMobile && !mobileFullPlayer"
       class="mobilePlayerHandle"
@@ -22,7 +42,7 @@
         type="button"
         :aria-label="t('player.options')"
         :title="t('player.options')"
-        @click.stop="mobileMenuOpen = !mobileMenuOpen"
+        @click.stop="toggleMobileMenu"
       >
         <base-icon icon="dots-three" :size="24" />
       </button>
@@ -261,14 +281,21 @@ export default {
       mobileDragStartY: null,
       mobileDragDistance: 0,
       mobileDragActive: false,
+      mobileExpandProgress: 0,
+      mobilePreviewHold: false,
+      mobileMenuBlockedUntil: 0,
       suppressMobileHandleClick: false,
       mobileMediaActionUnsubscribe: null,
     };
   },
   computed: {
     mobilePlayerDragStyle() {
-      if (!this.mobileDragActive || !this.mobileDragDistance) return {};
-      return { transform: `translateY(${this.mobileDragDistance}px)` };
+      const progress = this.mobileFullPlayer ? 0 : this.mobileExpandProgress;
+      return {
+        "--mobile-expand-progress": progress,
+        "--mobile-player-drag-y": this.mobileDragActive ? `${this.mobileDragDistance}px` : "0px",
+        "--mobile-compact-opacity": String(1 - Math.min(progress * 1.35, 1)),
+      };
     },
     playingTrack() {
       return this.$store.state.PlaybackManger.playingTrackInfo.track;
@@ -316,6 +343,13 @@ export default {
       // the lyrics of the new track are searched online, like the covers
       this.getLyrics();
     },
+    mobileFullPlayer(fullPlayer) {
+      if (fullPlayer) {
+        // Never carry the options menu into the expanded player.
+        this.mobileMenuOpen = false;
+        this.mobileMenuBlockedUntil = Date.now() + 350;
+      }
+    },
   },
   methods: {
     ...mapMutations([
@@ -347,6 +381,8 @@ export default {
       this.mobileDragStartY = event.clientY;
       this.mobileDragDistance = 0;
       this.mobileDragActive = false;
+      this.mobileExpandProgress = 0;
+      this.mobilePreviewHold = false;
       try {
         event.currentTarget.setPointerCapture(event.pointerId);
       } catch (error) {
@@ -358,30 +394,53 @@ export default {
       const distance = event.clientY - this.mobileDragStartY;
       if (distance < -6) {
         this.mobileDragActive = true;
-        this.mobileDragDistance = Math.max(distance, -170);
+        this.mobileDragDistance = Math.max(distance, -190);
+        // The full player grows progressively with the gesture instead of
+        // appearing only when the finger is released.
+        this.mobileExpandProgress = Math.min(Math.abs(this.mobileDragDistance) / 150, 1);
         if (event.cancelable) event.preventDefault();
       }
     },
     endMobilePlayerDrag() {
       if (this.mobileDragStartY === null) return;
       const wasDragging = this.mobileDragActive;
-      const shouldExpand = wasDragging && this.mobileDragDistance <= -42;
+      const shouldExpand = wasDragging && this.mobileDragDistance <= -54;
       this.resetMobilePlayerDrag();
       if (wasDragging) {
         // The browser can fire a click after the pointer gesture; ignore it.
         this.suppressMobileHandleClick = true;
+        this.mobileMenuBlockedUntil = Date.now() + 500;
         setTimeout(() => {
           this.suppressMobileHandleClick = false;
         }, 350);
       }
-      if (shouldExpand) this.togglePlayerMode();
+      if (shouldExpand) {
+        this.mobilePreviewHold = true;
+        this.togglePlayerMode();
+        // The real full player is already mounted underneath. Fade the preview
+        // instead of removing it, so the cover and title hand off seamlessly.
+        requestAnimationFrame(() => {
+          this.mobileExpandProgress = 0;
+          setTimeout(() => {
+            this.mobilePreviewHold = false;
+          }, 240);
+        });
+      } else {
+        this.mobileExpandProgress = 0;
+      }
     },
     cancelMobilePlayerDrag() {
       this.resetMobilePlayerDrag();
+      this.mobileExpandProgress = 0;
+      this.mobilePreviewHold = false;
     },
     handleMobileHandleClick() {
-      if (this.suppressMobileHandleClick) return;
+      if (this.suppressMobileHandleClick || Date.now() < this.mobileMenuBlockedUntil) return;
       this.togglePlayerMode();
+    },
+    toggleMobileMenu() {
+      if (Date.now() < this.mobileMenuBlockedUntil) return;
+      this.mobileMenuOpen = !this.mobileMenuOpen;
     },
     handleMobileMediaAction(action) {
       if (action === "toggle") this.toggleIsPlaying();
@@ -401,6 +460,10 @@ export default {
         // Expanding the mobile player shows only the player. The queue and
         // lyrics are opened explicitly from the options menu.
         this.mobileFullPlayer = fullPlayer;
+        if (!fullPlayer) {
+          this.mobileExpandProgress = 0;
+          this.mobilePreviewHold = false;
+        }
         this.playingPaneExpanded = false;
         this.showLyrics = false;
         return;
@@ -420,7 +483,12 @@ export default {
       this.playingPaneExpanded = false;
     },
     handleTrackInfoTap() {
-      if (this.isMobile) this.togglePlayerMode();
+      if (!this.isMobile) return;
+      if (this.mobileMenuOpen) {
+        this.mobileMenuOpen = false;
+        return;
+      }
+      this.togglePlayerMode();
     },
     handleArtistTap() {
       if (this.isMobile && this.mobileFullPlayer) this.collapseMobilePlayer();
@@ -429,11 +497,33 @@ export default {
     closeMobileMenu() {
       if (this.mobileMenuOpen) this.mobileMenuOpen = false;
     },
+    /**
+     * Android back priority inside the player: options/queue/lyrics first,
+     * then the expanded player. Returns true when the event was consumed.
+     */
+    handleAndroidBack() {
+      if (!this.isMobile) return false;
+      if (this.mobileMenuOpen) {
+        this.mobileMenuOpen = false;
+        return true;
+      }
+      if (this.playingPaneExpanded || this.showLyrics) {
+        this.closeMobilePanel();
+        return true;
+      }
+      if (this.mobileFullPlayer || document.body.classList.contains("fullScreenPlayingPane")) {
+        this.collapseMobilePlayer();
+        return true;
+      }
+      return false;
+    },
     collapseMobilePlayer() {
       document.body.classList.remove("fullScreenPlayingPane");
       this.resetMobilePlayerDrag();
       this.mobileFullPlayer = false;
       this.mobileMenuOpen = false;
+      this.mobileExpandProgress = 0;
+      this.mobilePreviewHold = false;
       this.playingPaneExpanded = false;
       this.showLyrics = false;
     },

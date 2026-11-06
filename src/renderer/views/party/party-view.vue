@@ -1222,6 +1222,29 @@ export default {
         this.scannerStream = null;
       }
     },
+    /**
+     * Android back closes the panels that live inside the party before the
+     * shell decides whether to leave the party page.
+     */
+    handleAndroidBack() {
+      if (this.showScanner) {
+        this.stopScanner();
+        return true;
+      }
+      if (this.showBlocked) {
+        this.showBlocked = false;
+        return true;
+      }
+      if (this.selectedPlaylist) {
+        this.selectedPlaylist = null;
+        return true;
+      }
+      if (this.mode === 'idle' && this.startChoice !== 'menu') {
+        this.startChoice = 'menu';
+        return true;
+      }
+      return false;
+    },
     // -----------------------------------------------------------------
     // Host: room administration
     // -----------------------------------------------------------------

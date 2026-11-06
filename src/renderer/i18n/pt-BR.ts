@@ -332,6 +332,8 @@ export default {
   "meld.comingSoon": "Chega na próxima versão",
 
   "notification.addingTracks": "Adicionando faixas",
+  "notification.tracksAdded": "Biblioteca atualizada",
+  "notification.tracksAddedCount": "{count} nova(s) faixa(s) adicionada(s)",
   "notification.loadingSongs": "Carregando músicas",
   "notification.repairingCovers": "Reparando capas",
   "notification.searchingCovers": "Buscando capas online",

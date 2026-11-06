@@ -8,11 +8,14 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.drawable.Icon;
 import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.os.Build;
+import android.util.Base64;
 
 import androidx.core.content.ContextCompat;
 
@@ -39,6 +42,8 @@ public class MediaNotificationPlugin extends Plugin {
     private String artist = "";
     private boolean playing = false;
     private long durationMs = 0;
+    private String artworkSource = "";
+    private Bitmap artwork;
     private boolean notificationPermissionAsked = false;
 
     @Override
@@ -81,6 +86,13 @@ public class MediaNotificationPlugin extends Plugin {
         Double position = call.getDouble("position", 0d);
         double positionSeconds = position == null ? 0 : Math.max(0, position);
 
+        String nextArtwork = call.getString("artwork", "");
+        if (nextArtwork == null) nextArtwork = "";
+        if (!nextArtwork.equals(artworkSource)) {
+            artworkSource = nextArtwork;
+            artwork = decodeArtwork(nextArtwork);
+        }
+
         if (title == null || title.isEmpty()) {
             call.resolve();
             return;
@@ -96,6 +108,8 @@ public class MediaNotificationPlugin extends Plugin {
     public void clear(PluginCall call) {
         NotificationManager manager = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager != null) manager.cancel(NOTIFICATION_ID);
+        artworkSource = "";
+        artwork = null;
         if (mediaSession != null) {
             mediaSession.setActive(false);
             mediaSession.setPlaybackState(new PlaybackState.Builder()
@@ -125,6 +139,15 @@ public class MediaNotificationPlugin extends Plugin {
             .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
             .putLong(MediaMetadata.METADATA_KEY_DURATION, durationMs)
             .build();
+        if (artwork != null) {
+            metadata = new MediaMetadata.Builder()
+                .putString(MediaMetadata.METADATA_KEY_TITLE, title)
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
+                .putLong(MediaMetadata.METADATA_KEY_DURATION, durationMs)
+                .putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, artwork)
+                .putBitmap(MediaMetadata.METADATA_KEY_ART, artwork)
+                .build();
+        }
         mediaSession.setMetadata(metadata);
 
         long actions = PlaybackState.ACTION_PLAY
@@ -185,6 +208,10 @@ public class MediaNotificationPlugin extends Plugin {
             ))
             .addAction(buildAction(android.R.drawable.ic_media_next, "Próxima", ACTION_NEXT, 3));
 
+        if (artwork != null) {
+            builder.setLargeIcon(artwork);
+        }
+
         if (mediaSession != null) {
             builder.setStyle(new Notification.MediaStyle()
                 .setMediaSession(mediaSession.getSessionToken())
@@ -192,6 +219,31 @@ public class MediaNotificationPlugin extends Plugin {
         }
 
         manager.notify(NOTIFICATION_ID, builder.build());
+    }
+
+    /**
+     * The web layer sends a small, compressed data URL (JPEG, at most 512px)
+     * so the notification never has to download an image or deal with large
+     * bitmaps in the WebView.
+     */
+    private Bitmap decodeArtwork(String dataUrl) {
+        if (dataUrl == null || !dataUrl.startsWith("data:image/")) return null;
+        int comma = dataUrl.indexOf(',');
+        if (comma < 0 || comma + 1 >= dataUrl.length()) return null;
+        try {
+            byte[] bytes = Base64.decode(dataUrl.substring(comma + 1), Base64.DEFAULT);
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+            int sample = 1;
+            int largest = Math.max(bounds.outWidth, bounds.outHeight);
+            while (largest / sample > 512) sample *= 2;
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inSampleSize = sample;
+            return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+        } catch (Exception error) {
+            return null;
+        }
     }
 
     private Notification.Action buildAction(int iconResource, String label, String action, int requestCode) {
@@ -247,6 +299,8 @@ public class MediaNotificationPlugin extends Plugin {
         }
         NotificationManager manager = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager != null) manager.cancel(NOTIFICATION_ID);
+        artwork = null;
+        artworkSource = "";
         if (instance == this) instance = null;
         super.handleOnDestroy();
     }

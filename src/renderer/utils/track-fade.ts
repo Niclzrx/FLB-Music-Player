@@ -1,34 +1,37 @@
 import { connectExtraAudioElement } from "@/renderer/components/root/equalizer/equalizer";
 
 /**
- * The player loads the new track right away, but the track that is left
- * behind keeps ringing for a moment: a copy of it plays the tail it had
- * left, with the volume going down to zero, so the change is not abrupt.
+ * The player changes the source of its audio element right away. To make the
+ * change smooth, a copy of the track being left keeps playing where it was,
+ * while the new track starts silent and rises to full volume. Both volumes
+ * cross during the same second: a real crossfade, not a fade-out followed by
+ * an abrupt start.
  *
- * The copy is thrown away as soon as the fade is over. And when the user
- * keeps skipping before the fade is over the fade is ignored: the copy
- * stops ringing right away and every new change becomes an instant one, so
- * the tails of the skipped tracks never pile up behind the music.
+ * Only one outgoing copy exists at a time. When the user skips again before
+ * the fade ends, the old copy is stopped and the current track becomes the
+ * new outgoing stream. That keeps memory and battery use bounded even for
+ * long sessions and rapid skipping.
  */
 
-const FADE_DURATION_MS = 1000;
-// the copy is taken away even when no frame is drawn anymore, like when
-// the app goes to the background right when the user skips
-const HARD_DEADLINE_MARGIN_MS = 500;
-// a copy whose file never answers would stay behind the player forever
-const COPY_START_TIMEOUT_MS = 2500;
+const CROSSFADE_DURATION_MS = 1000;
+// The copy is removed even when frames stop being drawn, like when the app
+// goes to the background right after a track change.
+const HARD_DEADLINE_MARGIN_MS = 700;
+// A copy whose file never answers must not stay behind the player forever.
+const COPY_START_TIMEOUT_MS = 2600;
+// A second skip while the new track is still loading keeps the previous copy
+// playing instead of creating a short silent gap.
+const RAPID_CHANGE_WINDOW_MS = 500;
 
-let fadingCopy: HTMLAudioElement | null = null;
-let detachFadingCopy: (() => void) | null = null;
+let outgoingCopy: HTMLAudioElement | null = null;
+let detachOutgoingCopy: (() => void) | null = null;
 let fadeAnimation = 0;
 let fadeDeadline: ReturnType<typeof setTimeout> | null = null;
+let startTimeout: ReturnType<typeof setTimeout> | null = null;
+let incomingAudio: HTMLAudioElement | null = null;
 let lastChangeAt = 0;
 
-/**
- * Takes away the copy of the track that is fading out, if there is one, so
- * it does not keep ringing behind the track that is playing now.
- */
-function stopFadingCopy(): void {
+function clearTimers(): void {
   if (fadeAnimation) {
     cancelAnimationFrame(fadeAnimation);
     fadeAnimation = 0;
@@ -37,112 +40,175 @@ function stopFadingCopy(): void {
     clearTimeout(fadeDeadline);
     fadeDeadline = null;
   }
-  if (fadingCopy) {
-    fadingCopy.pause();
-    fadingCopy.removeAttribute("src");
-    fadingCopy.remove();
-    fadingCopy = null;
-  }
-  if (detachFadingCopy) {
-    detachFadingCopy();
-    detachFadingCopy = null;
+  if (startTimeout) {
+    clearTimeout(startTimeout);
+    startTimeout = null;
   }
 }
 
+function stopOutgoingCopy(): void {
+  clearTimers();
+  if (outgoingCopy) {
+    outgoingCopy.pause();
+    outgoingCopy.removeAttribute("src");
+    outgoingCopy.load();
+    outgoingCopy.remove();
+    outgoingCopy = null;
+  }
+  if (detachOutgoingCopy) {
+    detachOutgoingCopy();
+    detachOutgoingCopy = null;
+  }
+}
+
+function restoreIncomingVolume(): void {
+  if (incomingAudio) incomingAudio.volume = 1;
+}
+
+function armDeadline(): void {
+  if (fadeDeadline) clearTimeout(fadeDeadline);
+  fadeDeadline = setTimeout(() => {
+    stopOutgoingCopy();
+    restoreIncomingVolume();
+  }, CROSSFADE_DURATION_MS + HARD_DEADLINE_MARGIN_MS);
+}
+
 /**
- * Fades out the track the player is leaving: it keeps playing where it was
- * left, with the volume going down to zero in one second, while the track
- * that takes over plays at full volume from the very first moment.
- *
- * A change that comes faster than the fade ignores it: the copy of the
- * previous change stops ringing and no new copy is made.
- *
- * @param playingAudio the player element, it still holds the track that is
- * being left when this is called
+ * Fades in the new track while the outgoing copy fades out. Call it after the
+ * new source has actually started playing.
  */
-export function fadeOutTrack(playingAudio: HTMLAudioElement): void {
+export function finishCrossfade(playingAudio: HTMLAudioElement | null): void {
+  if (!playingAudio) return;
+  if (incomingAudio && incomingAudio !== playingAudio) return;
+
+  if (!outgoingCopy) {
+    playingAudio.volume = 1;
+    incomingAudio = null;
+    clearTimers();
+    return;
+  }
+
+  if (fadeAnimation) cancelAnimationFrame(fadeAnimation);
+  const copy = outgoingCopy;
+  const outStart = Math.max(0, Math.min(1, copy.volume));
+  const inStart = Math.max(0, Math.min(1, playingAudio.volume));
+  const startedAt = performance.now();
+
+  const step = () => {
+    if (outgoingCopy !== copy || (incomingAudio && incomingAudio !== playingAudio)) return;
+    const progress = Math.min((performance.now() - startedAt) / CROSSFADE_DURATION_MS, 1);
+    // Equal-power curves keep the perceived loudness stable in the middle.
+    const outgoingGain = Math.cos(progress * Math.PI * 0.5);
+    const incomingGain = Math.sin(progress * Math.PI * 0.5);
+    copy.volume = Math.max(0, Math.min(1, outStart * outgoingGain));
+    playingAudio.volume = Math.max(0, Math.min(1, inStart + (1 - inStart) * incomingGain));
+    if (progress < 1) {
+      fadeAnimation = requestAnimationFrame(step);
+      return;
+    }
+    playingAudio.volume = 1;
+    incomingAudio = null;
+    stopOutgoingCopy();
+  };
+  step();
+}
+
+/**
+ * Stops a running crossfade immediately. Used when the user pauses or when
+ * the player is unmounted, so no orphaned copy keeps ringing.
+ */
+export function cancelCrossfade(playingAudio?: HTMLAudioElement | null): void {
+  stopOutgoingCopy();
+  if (playingAudio) playingAudio.volume = 1;
+  incomingAudio = null;
+}
+
+/**
+ * Prepares the transition. It still receives the old track in the player
+ * element when it is called, so it can leave a copy playing and mute the
+ * element before Vue replaces its source.
+ */
+export function beginCrossfade(playingAudio: HTMLAudioElement | null): void {
+  if (!playingAudio) return;
   const now = Date.now();
-  const skippingTooFast = now - lastChangeAt < FADE_DURATION_MS;
+  const rapidChange = now - lastChangeAt < RAPID_CHANGE_WINDOW_MS;
   lastChangeAt = now;
 
-  // the copy of a previous change stops ringing either way: instantly when
-  // the user is skipping fast, or because this fade takes its place
-  stopFadingCopy();
-  if (skippingTooFast) return;
+  const canBeHeard =
+    !playingAudio.paused &&
+    !playingAudio.ended &&
+    !!playingAudio.src &&
+    playingAudio.currentTime > 0;
 
-  // a track that ends by itself, or that cannot be played, is not sounding
-  // anymore when the next one is chosen, there is nothing left to fade
-  if (!playingAudio || playingAudio.paused || playingAudio.ended) return;
-  if (!playingAudio.src || playingAudio.currentTime <= 0) return;
+  if (!canBeHeard) {
+    // When the previous track is still loading, keep the copy that is already
+    // sounding. The next play() will fade it out against the new track.
+    if (rapidChange && outgoingCopy && !outgoingCopy.paused) {
+      incomingAudio = playingAudio;
+      playingAudio.volume = 0;
+      armDeadline();
+      return;
+    }
+    stopOutgoingCopy();
+    playingAudio.volume = 1;
+    incomingAudio = null;
+    return;
+  }
+
+  stopOutgoingCopy();
+  incomingAudio = playingAudio;
 
   const positionLeftBehind = playingAudio.currentTime;
   const copy = document.createElement("audio");
   copy.preload = "auto";
   copy.src = playingAudio.src;
+  copy.volume = Math.max(0, Math.min(1, playingAudio.volume));
   document.body.appendChild(copy);
 
-  fadingCopy = copy;
-  detachFadingCopy = connectExtraAudioElement(copy);
+  outgoingCopy = copy;
+  detachOutgoingCopy = connectExtraAudioElement(copy);
+  // Mute the real element immediately: the copy takes over the tail of the
+  // old track, and the new source starts silent when Vue swaps it.
+  playingAudio.volume = 0;
 
-  // the fade does not depend on frames only: the app can go to the
-  // background right when the user skips, and the frames stop coming
-  // while the copy keeps ringing. The end of the copy and a deadline take
-  // it away even when no frame is drawn anymore
   copy.addEventListener("ended", () => {
-    if (fadingCopy === copy) stopFadingCopy();
+    if (outgoingCopy === copy) {
+      // The track ended before the fade did. There is no outgoing sound left,
+      // so the incoming track must not stay at a partial volume.
+      stopOutgoingCopy();
+      restoreIncomingVolume();
+    }
   });
-  fadeDeadline = setTimeout(() => {
-    if (fadingCopy === copy) stopFadingCopy();
-  }, FADE_DURATION_MS + HARD_DEADLINE_MARGIN_MS);
 
-  const lowerTheVolumeUntilItGoesAway = () => {
-    const fadeStartedAt = performance.now();
-    const step = () => {
-      // a later change took the place of this copy, its fade is the one
-      // that goes on
-      if (fadingCopy !== copy) return;
-      const progress = Math.min(
-        (performance.now() - fadeStartedAt) / FADE_DURATION_MS,
-        1
-      );
-      copy.volume = Math.max(0, 1 - progress);
-      if (progress < 1) {
-        fadeAnimation = requestAnimationFrame(step);
-        return;
-      }
-      stopFadingCopy();
-    };
-    step();
-  };
-
-  // the copy keeps playing where the track was left. The file was sounding
-  // a moment ago, so it comes from the cache most of the times and the copy
-  // starts on the spot
   const keepPlayingWhereItStopped = () => {
-    if (fadingCopy !== copy) return;
+    if (outgoingCopy !== copy) return;
     try {
       copy.currentTime = positionLeftBehind;
     } catch (error) {
-      // the file is not ready to be seeked yet, the fade goes on anyway
+      // The file is not ready to be seeked yet; the fade still works.
     }
     const playing = copy.play();
     if (playing && typeof playing.catch === "function") {
       playing.catch(() => {
-        // only this copy goes away, the copy of a later change must stay
-        if (fadingCopy === copy) stopFadingCopy();
+        if (outgoingCopy === copy) {
+          stopOutgoingCopy();
+          restoreIncomingVolume();
+        }
       });
     }
-    lowerTheVolumeUntilItGoesAway();
   };
 
   if (copy.readyState > 0) {
     keepPlayingWhereItStopped();
-    return;
+  } else {
+    copy.addEventListener("loadedmetadata", keepPlayingWhereItStopped, { once: true });
+    startTimeout = setTimeout(() => {
+      if (outgoingCopy === copy && copy.readyState === 0) {
+        stopOutgoingCopy();
+        restoreIncomingVolume();
+      }
+    }, COPY_START_TIMEOUT_MS);
   }
-  copy.addEventListener("loadedmetadata", keepPlayingWhereItStopped, {
-    once: true,
-  });
-  setTimeout(() => {
-    if (fadingCopy === copy && !fadeAnimation) stopFadingCopy();
-  }, COPY_START_TIMEOUT_MS);
+
+  armDeadline();
 }

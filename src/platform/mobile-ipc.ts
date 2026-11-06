@@ -32,17 +32,25 @@ const MediaNotification = registerPlugin<{
     playing: boolean;
     position?: number;
     duration?: number;
+    artwork?: string;
   }): Promise<void>;
   clear(): Promise<void>;
   addListener(eventName: string, listener: (payload: any) => void): Promise<{ remove: () => void }>;
 }>("MediaNotification");
 
 const DB_NAME = "flb-music-mobile";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const MEDIA_PREFIX = "flb-media://";
 const ACCEPTED_AUDIO = /\.(mp3|flac|wav|m4a|aac|ogg|opus|wma|aiff|ape)$/i;
+const COVER_MISS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const ARTWORK_CACHE_LIMIT = 40;
 const handlers = new Map<string, Set<Listener>>();
 const mediaUrls: Record<string, string> = {};
+const coverLookupMemory = new Map<string, { cover: string; updatedAt: number; miss: boolean }>();
+const coverLookupRequests = new Map<string, Promise<string>>();
+const artworkMemory = new Map<string, string>();
+let artworkCacheKeys: string[] | null = null;
+let mediaNotificationSequence = 0;
 let dbPromise: Promise<IDBDatabase> | null = null;
 let partyEventsAttached = false;
 let mobileMediaActionHandler: ((action: string) => void) | null = null;
@@ -53,11 +61,16 @@ let mobileMediaListener: Promise<{ remove: () => void } | undefined> | null = nu
 /**
  * Keeps the native Android media notification in sync with the player. It is
  * intentionally silent when the web build is opened outside Capacitor.
+ *
+ * The artwork is loaded and compressed only once per cover. The notification
+ * is updated immediately without it and again as soon as the small data URL
+ * is ready, so a slow network never delays the playback controls.
  */
 export function updateMobileMediaNotification(
   track: TrackType | null,
   playing: boolean
 ): void {
+  const requestSequence = ++mediaNotificationSequence;
   if (!track || !track.defaultTitle) {
     MediaNotification.clear().catch(() => undefined);
     return;
@@ -69,13 +82,26 @@ export function updateMobileMediaNotification(
       ? audio.duration
       : Number(track.duration) || 0;
 
-  MediaNotification.update({
-    title: track.defaultTitle,
-    artist: track.defaultArtist || "",
-    playing,
-    position,
-    duration,
-  }).catch(() => undefined);
+  const update = (artwork: string) => {
+    if (requestSequence !== mediaNotificationSequence) return;
+    MediaNotification.update({
+      title: track.defaultTitle,
+      artist: track.defaultArtist || "",
+      playing,
+      position,
+      duration,
+      artwork,
+    }).catch(() => undefined);
+  };
+
+  const source = track.albumArt || "";
+  const artworkKey = source ? artworkCacheKey(source) : "";
+  const cachedArtwork = artworkKey ? artworkMemory.get(artworkKey) : "";
+  update(cachedArtwork || "");
+  if (!source || cachedArtwork) return;
+  void resolveNotificationArtwork(source).then((artwork) => {
+    if (artwork) update(artwork);
+  });
 }
 
 /**
@@ -118,6 +144,9 @@ function database(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("records")) {
         db.createObjectStore("records", { keyPath: "key" });
+      }
+      if (!db.objectStoreNames.contains("covers")) {
+        db.createObjectStore("covers", { keyPath: "key" });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -328,12 +357,14 @@ async function importFiles(
     if (knownSourceKeys) knownSourceKeys.add(sourceKey);
     if (reportProgress) emit("parsingProgress", [index + 1, valid.length]);
   }
-  if (notify && imported.length) {
-    emit("addMultipleTracks", imported.map(({ mobileBlobId, ...track }) => track as TrackType));
-    const all = await allTracks();
-    await hydrateMediaUrls(all);
-    emit("processedFiles", all.map(({ mobileBlobId, ...track }) => track as TrackType));
-    emit("parsingDone");
+  if (notify) {
+    if (imported.length) {
+      emit("addMultipleTracks", imported.map(({ mobileBlobId, ...track }) => track as TrackType));
+      const all = await allTracks();
+      await hydrateMediaUrls(all);
+      emit("processedFiles", all.map(({ mobileBlobId, ...track }) => track as TrackType));
+    }
+    emit("parsingDone", { imported: imported.length, total: valid.length });
   }
   return imported;
 }
@@ -345,7 +376,12 @@ function decodeBase64Blob(encoded: string, mimeType: string): Blob {
   return new Blob([bytes], { type: mimeType || "application/octet-stream" });
 }
 
-async function importNativeFolder(folder: MobileFolder, notify: boolean, files?: NativeAudioFile[]) {
+async function importNativeFolder(
+  folder: MobileFolder,
+  notify: boolean,
+  files?: NativeAudioFile[],
+  reportProgress = true
+) {
   const listing = files ? { files } : await FolderAccess.listFolder({ uri: folder.uri });
   if (!listing.files || !listing.files.length) {
     throw new Error("Nenhum arquivo de música compatível foi encontrado na pasta selecionada.");
@@ -386,25 +422,36 @@ async function importNativeFolder(folder: MobileFolder, notify: boolean, files?:
       console.warn("Could not import audio file from selected folder", item.name, error);
       failedFiles.push(item.name || "arquivo sem nome");
     }
-    if (notify) emit("parsingProgress", [index + 1, audioFiles.length]);
+    if (notify && reportProgress) emit("parsingProgress", [index + 1, audioFiles.length]);
   }
   if (notify) {
-    const all = await allTracks();
-    await hydrateMediaUrls(all);
-    if (importedTracks.length) {
-      emit("addMultipleTracks", importedTracks.map(({ mobileBlobId, ...track }) => track as TrackType));
+    const hasChanges = importedTracks.length > 0 || failedFiles.length > 0;
+    // A background rescan that finds nothing new must be almost free: no
+    // full-library event, no cover hydration and no party synchronization.
+    if (reportProgress || hasChanges) {
+      const all = await allTracks();
+      await hydrateMediaUrls(all);
+      if (importedTracks.length) {
+        emit("addMultipleTracks", importedTracks.map(({ mobileBlobId, ...track }) => track as TrackType));
+      }
+      emit("processedFiles", all.map(({ mobileBlobId, ...track }) => track as TrackType));
+      await syncPartyLibrary(all);
+      if (failedFiles.length) {
+        const examples = failedFiles.slice(0, 3).join(", ");
+        emit("mobileFolderScanError", {
+          message: `${failedFiles.length} música(s) não puderam ser importadas${examples ? `: ${examples}` : ""}. As demais foram adicionadas.`,
+        });
+      } else if (!all.length) {
+        emit("mobileFolderScanError", {
+          message: "A pasta foi lida, mas nenhum áudio compatível foi importado.",
+        });
+      }
     }
-    emit("processedFiles", all.map(({ mobileBlobId, ...track }) => track as TrackType));
-    emit("parsingDone");
-    await syncPartyLibrary(all);
-    if (failedFiles.length) {
-      const examples = failedFiles.slice(0, 3).join(", ");
-      emit("mobileFolderScanError", {
-        message: `${failedFiles.length} música(s) não puderam ser importadas${examples ? `: ${examples}` : ""}. As demais foram adicionadas.`,
-      });
-    } else if (!all.length) {
-      emit("mobileFolderScanError", {
-        message: "A pasta foi lida, mas nenhum áudio compatível foi importado.",
+    if (reportProgress) {
+      emit("parsingDone", {
+        imported: importedCount,
+        total: audioFiles.length,
+        failed: failedFiles.length,
       });
     }
   }
@@ -506,7 +553,7 @@ async function initializeApp() {
   // for large music collections, so do them in the background after startup.
   void (async () => {
     for (const folder of folders) {
-      try { await importNativeFolder(folder, true); }
+      try { await importNativeFolder(folder, true, undefined, false); }
       catch (error) { console.warn("Could not rescan music folder", folder.name, error); }
     }
   })();
@@ -657,7 +704,86 @@ function normalizeCoverSearch(value: string): string {
     .trim();
 }
 
-async function onlineCoverFor(track: TrackType): Promise<string> {
+interface CoverCacheRecord {
+  key: string;
+  cover?: string;
+  updatedAt: number;
+  miss?: boolean;
+}
+
+/**
+ * A track is searched with more than one query. The result is stored under
+ * every key so another track of the same album (or with the same title) is
+ * answered from the persistent cache without touching the network again.
+ */
+function coverCacheKeys(track: TrackType): string[] {
+  const title = normalizeCoverSearch(track.defaultTitle || track.title || "").toLowerCase();
+  const artist = normalizeCoverSearch(track.defaultArtist || track.artist || "").toLowerCase();
+  const album = normalizeCoverSearch(track.album || "").toLowerCase();
+  const keys: string[] = [];
+  if (artist || album) keys.push(`album:${artist}|${album}`);
+  if (artist || title) keys.push(`track:${artist}|${title}`);
+  if (album) keys.push(`album-name:${album}`);
+  if (title) keys.push(`title:${title}`);
+  return Array.from(new Set(keys));
+}
+
+async function readCoverCache(key: string): Promise<CoverCacheRecord | null> {
+  const memory = coverLookupMemory.get(key);
+  if (memory) return { key, ...memory };
+  try {
+    const db = await database();
+    const record = await new Promise<CoverCacheRecord | null>((resolve) => {
+      const request = db.transaction("covers").objectStore("covers").get(key);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => resolve(null);
+    });
+    if (record) {
+      coverLookupMemory.set(key, {
+        cover: record.cover || "",
+        updatedAt: record.updatedAt || 0,
+        miss: !!record.miss,
+      });
+    }
+    return record;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function writeCoverCache(keys: string[], cover: string): Promise<void> {
+  const updatedAt = Date.now();
+  // A miss belongs to the track that was searched. Storing it under the
+  // album key would hide a cover that another track of the album can find.
+  const targetKeys = cover
+    ? keys
+    : keys.filter((key) => key.startsWith("track:") || key.startsWith("title:"));
+  const records: CoverCacheRecord[] = (targetKeys.length ? targetKeys : keys).map((key) => ({
+    key,
+    cover,
+    updatedAt,
+    miss: !cover,
+  }));
+  records.forEach((record) => coverLookupMemory.set(record.key, {
+    cover: record.cover || "",
+    updatedAt,
+    miss: !!record.miss,
+  }));
+  try {
+    const db = await database();
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction("covers", "readwrite");
+      records.forEach((record) => tx.objectStore("covers").put(record));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch (error) {
+    // The in-memory cache still prevents duplicate requests in this session.
+  }
+}
+
+async function fetchOnlineCover(track: TrackType): Promise<string> {
+  if (!navigator.onLine) return "";
   const title = normalizeCoverSearch(track.defaultTitle || track.title || "");
   const artist = normalizeCoverSearch(track.defaultArtist || track.artist || "");
   const album = normalizeCoverSearch(track.album || "");
@@ -668,30 +794,208 @@ async function onlineCoverFor(track: TrackType): Promise<string> {
     title,
   ].filter(Boolean);
   for (const query of Array.from(new Set(queries))) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
     try {
-      const response = await fetch(`https://api.deezer.com/search?q=${encodeURIComponent(query)}`);
+      const response = await fetch(
+        `https://api.deezer.com/search?q=${encodeURIComponent(query)}`,
+        { signal: controller.signal }
+      );
       if (!response.ok) continue;
       const result = await response.json();
       const match = (result.data || []).find((item: any) => item.album && (item.album.cover_xl || item.album.cover_big));
       if (match) return match.album.cover_xl || match.album.cover_big;
     } catch (_) {
       // Network or provider restrictions should not stop local cover recovery.
+    } finally {
+      clearTimeout(timer);
     }
   }
   return "";
 }
 
+async function onlineCoverFor(track: TrackType): Promise<string> {
+  const keys = coverCacheKeys(track);
+  for (const key of keys) {
+    const record = await readCoverCache(key);
+    if (!record) continue;
+    if (record.cover) return record.cover;
+    if (record.miss && Date.now() - record.updatedAt < COVER_MISS_TTL_MS) return "";
+  }
+  // Looking for new covers while offline only wastes battery. The negative
+  // cache is not written either, so the next online scan tries again.
+  if (!navigator.onLine) return "";
+
+  // Two tracks of the same album, or the cover panel and the repair job, must
+  // not start the same online search at the same time.
+  const requestKey = keys[0] || `track:${normalizeCoverSearch(track.defaultTitle || "").toLowerCase()}`;
+  const running = coverLookupRequests.get(requestKey);
+  if (running) return running;
+
+  const request = (async () => {
+    const cover = await fetchOnlineCover(track);
+    await writeCoverCache(keys, cover);
+    return cover;
+  })();
+  coverLookupRequests.set(requestKey, request);
+  try {
+    return await request;
+  } finally {
+    coverLookupRequests.delete(requestKey);
+  }
+}
+
+function readArtworkCache(key: string): Promise<string> {
+  return new Promise(async (resolve) => {
+    try {
+      const db = await database();
+      const request = db.transaction("covers").objectStore("covers").get(key);
+      request.onsuccess = () => resolve(request.result && request.result.dataUrl ? request.result.dataUrl : "");
+      request.onerror = () => resolve("");
+    } catch (error) {
+      resolve("");
+    }
+  });
+}
+
+/**
+ * Keeps at most ARTWORK_CACHE_LIMIT compressed covers on the device. The index
+ * lives in the existing records store, so no extra object store is needed.
+ */
+async function writeArtworkCache(key: string, dataUrl: string, memoryKey: string): Promise<void> {
+  artworkMemory.set(memoryKey, dataUrl);
+  if (artworkMemory.size > 20) {
+    const oldest = artworkMemory.keys().next().value;
+    if (oldest) artworkMemory.delete(oldest);
+  }
+  try {
+    const db = await database();
+    const keys = artworkCacheKeys || await readRecord<string[]>("artworkCacheKeys", []);
+    const nextKeys = [key, ...keys.filter((item) => item !== key)];
+    const removed = nextKeys.splice(ARTWORK_CACHE_LIMIT);
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction("covers", "readwrite");
+      tx.objectStore("covers").put({ key, dataUrl, updatedAt: Date.now() });
+      removed.forEach((item) => tx.objectStore("covers").delete(item));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+    artworkCacheKeys = nextKeys;
+    await writeRecord("artworkCacheKeys", nextKeys);
+  } catch (error) {
+    // The notification works without artwork if the cache is unavailable.
+  }
+}
+
+function dataUrlToImage(dataUrl: string): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const image = new Image();
+    let settled = false;
+    const finish = (result: HTMLImageElement | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish(null), 5000);
+    image.onload = () => finish(image);
+    image.onerror = () => finish(null);
+    image.src = dataUrl;
+  });
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => resolve("");
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function compressArtwork(source: string): Promise<string> {
+  let dataUrl = source;
+  if (!/^data:image\//i.test(source)) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 7000);
+    try {
+      const response = await fetch(source, { signal: controller.signal });
+      if (!response.ok) return "";
+      const blob = await response.blob();
+      if (!blob.type.startsWith("image/")) return "";
+      dataUrl = await blobToDataUrl(blob);
+    } catch (error) {
+      return "";
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  if (!dataUrl) return "";
+  const image = await dataUrlToImage(dataUrl);
+  if (!image) return "";
+  const maxSize = 512;
+  const scale = Math.min(1, maxSize / Math.max(image.width || 1, image.height || 1));
+  const width = Math.max(1, Math.round((image.width || maxSize) * scale));
+  const height = Math.max(1, Math.round((image.height || maxSize) * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) return "";
+  context.drawImage(image, 0, 0, width, height);
+  try {
+    return canvas.toDataURL("image/jpeg", 0.82);
+  } catch (error) {
+    return "";
+  }
+}
+
+async function resolveNotificationArtwork(source: string): Promise<string> {
+  const key = artworkCacheKey(source);
+  const memory = artworkMemory.get(key);
+  if (memory) return memory;
+  const cached = await readArtworkCache(key);
+  if (cached) {
+    artworkMemory.set(key, cached);
+    return cached;
+  }
+  const compressed = await compressArtwork(source);
+  if (compressed) await writeArtworkCache(key, compressed, key);
+  return compressed;
+}
+
+function artworkCacheKey(source: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `art:${(hash >>> 0).toString(36)}:${source.length}`;
+}
+
 async function repairMobileCovers() {
+  const groupKey = "mobile-cover-repair";
   emit("notification", {
-    title: "settings.repairingCovers",
-    subTitle: "settings.repairingCoversHint",
-    type: "persist",
+    groupKey,
+    isPersistent: true,
+    title: "notification.repairingCovers",
+    subTitle: "notification.searchingCovers",
+    progress: { current: 0, total: 1 },
+    type: "normal",
   });
   const records = await allTracks();
   const repaired: TrackType[] = [];
   const coverByAlbum = new Map<string, string>();
   const albumKey = (track: TrackType) =>
     `${normalizeCoverSearch(track.artist || track.defaultArtist || "").toLowerCase()}|${normalizeCoverSearch(track.album || "").toLowerCase()}`;
+  emit("notification", {
+    groupKey,
+    isPersistent: true,
+    title: "notification.repairingCovers",
+    subTitle: "notification.searchingCovers",
+    progress: { current: 0, total: records.length },
+    type: "normal",
+  });
 
   records.forEach((track) => {
     if (track.albumArt && /^(data:image\/|https?:\/\/|blob:)/i.test(track.albumArt)) {
@@ -725,16 +1029,20 @@ async function repairMobileCovers() {
       if (key !== "|") coverByAlbum.set(key, track.albumArt);
     }
     emit("notification", {
-      title: "settings.repairingCovers",
+      groupKey,
+      isPersistent: true,
+      title: "notification.repairingCovers",
       subTitle: `${index + 1}/${records.length}`,
-      type: "persist",
+      progress: { current: index + 1, total: records.length },
+      type: "normal",
     });
   }
-  emit("closeNotification", "settings.repairingCovers");
+  emit("closeNotification", groupKey);
   emit("coversRepaired", repaired);
   emit("notification", {
     title: "notification.coversRepaired",
     subTitle: "notification.coversRepairedCount",
+    values: { count: repaired.length },
     type: "success",
   });
 }
@@ -867,13 +1175,18 @@ async function send(channel: string, payload?: any) {
     case "resetApp": {
       const db = await database();
       await new Promise<void>((resolve) => {
-        const tx = db.transaction(["tracks", "audio", "records"], "readwrite");
+        const tx = db.transaction(["tracks", "audio", "records", "covers"], "readwrite");
         tx.objectStore("tracks").clear();
         tx.objectStore("audio").clear();
         tx.objectStore("records").clear();
+        tx.objectStore("covers").clear();
         tx.oncomplete = () => resolve();
         tx.onerror = () => resolve();
       });
+      coverLookupMemory.clear();
+      coverLookupRequests.clear();
+      artworkMemory.clear();
+      artworkCacheKeys = null;
       Object.keys(mediaUrls).forEach((key) => {
         URL.revokeObjectURL(mediaUrls[key]);
         delete mediaUrls[key];

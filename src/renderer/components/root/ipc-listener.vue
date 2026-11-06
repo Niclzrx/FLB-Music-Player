@@ -50,8 +50,8 @@ export default {
       "restoreSettings",
       "setScannedFolders",
       "setPlayStats",
-      "popNotification",
       "pushNotification",
+      "removeNotification",
       "setDownloadedArtistInfo",
       "removeTrackFromPendingDownloads",
       "updateTrackDownloadProgress",
@@ -218,7 +218,12 @@ export default {
       this.generateAlbumsData();
       this.generateArtistsData();
       this.generateFoldersData();
-      this.playLastPlayedTrack();
+      // Background rescans and imports can refresh the library more than once.
+      // Only the first restore is allowed to bring back the last played track,
+      // otherwise a rescan would toggle the player of the user.
+      if (!this.$store.state.PlaybackManger.playingTrackInfo.track) {
+        this.playLastPlayedTrack();
+      }
     });
     if (this.appIsOnline) {
       this.fetchArtistsInfo();
@@ -252,23 +257,36 @@ export default {
     ipcRenderer.on("playFirstTrack", () => {
       this.playFirstTrack();
     });
-    ipcRenderer.on("parsingDone", () => {
+    ipcRenderer.on("parsingDone", (e, result) => {
       this.generateAlbumsData();
       this.generateArtistsData();
       this.generateFoldersData();
       this.sortTracks("dateAdded");
       this.hideOnboard = true;
-      this.popNotification();
+      this.removeNotification("mobile-import");
+      const imported = result && Number.isFinite(Number(result.imported))
+        ? Number(result.imported)
+        : 0;
+      if (imported > 0) {
+        this.pushNotification({
+          title: "notification.tracksAdded",
+          subTitle: "notification.tracksAddedCount",
+          values: { count: imported },
+          type: "success",
+        });
+      }
     });
     ipcRenderer.on("parsingProgress", (e, [currentIndex, total]) => {
       if (total > 0 && currentIndex >= total) {
         this.hideOnboard = true;
-        console.log(total);
       }
       this.pushNotification({
-        title: this.t('notification.addingTracks'),
+        groupKey: "mobile-import",
+        isPersistent: true,
+        title: "notification.addingTracks",
         subTitle: `${currentIndex}/${total}`,
-        type: "persist",
+        progress: { current: currentIndex, total },
+        type: "normal",
       });
     });
     const dbInfo = localStorage.getItem("downloadedArtists");

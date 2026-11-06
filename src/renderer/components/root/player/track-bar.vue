@@ -29,6 +29,7 @@
 <script>
 import { mapActions, mapMutations } from "vuex";
 import { toFileUrl, trackSource } from "@/renderer/utils";
+import { finishCrossfade } from "@/renderer/utils/track-fade";
 import "@/renderer/components/root/equalizer/equalizer";
 
 export default {
@@ -64,7 +65,13 @@ export default {
         if (!audio) return;
         if (this.audioState.playing) {
           const playing = audio.play();
-          if (playing && playing.catch) playing.catch(() => {});
+          if (playing && typeof playing.then === "function") {
+            playing
+              .then(() => finishCrossfade(audio))
+              .catch(() => finishCrossfade(audio));
+          } else {
+            finishCrossfade(audio);
+          }
         }
       });
     },
