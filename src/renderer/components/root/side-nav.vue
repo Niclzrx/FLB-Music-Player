@@ -23,16 +23,16 @@
         </router-link>
       </div>
       <div
-        @click="giveHope()"
+        @click="switchPage('FLBing')"
         id="FLBing"
         :class="[
           currentPage === 'FLBing' ? 'active-sideNav-group' : '',
           'sideNav-group'
         ]"
       >
-        <router-link to="/">
+        <router-link to="/meld">
           <img
-            title="FLBing"
+            title="Meld"
             class="icon"
             src="@icon/meld.svg"
           >
@@ -111,20 +111,12 @@ export default {
   methods: {
     ...mapMutations([
       'UIcontrollerToggleProperty',
-      'UIcontrollerSetPropertyValue',
-      'pushNotification'
+      'UIcontrollerSetPropertyValue'
     ]),
     switchPage(page) {
       this.UIcontrollerSetPropertyValue({
         property: 'currentPage',
         newValue: page
-      });
-    },
-    giveHope() {
-      this.pushNotification({
-        title: this.t('meld.underDevelopment'),
-        subTitle: this.t('meld.comingSoon'),
-        type: 'danger'
       });
     },
     refresh() {

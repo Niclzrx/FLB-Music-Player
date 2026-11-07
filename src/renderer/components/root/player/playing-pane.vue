@@ -347,7 +347,6 @@ export default {
       if (fullPlayer) {
         // Never carry the options menu into the expanded player.
         this.mobileMenuOpen = false;
-        this.mobileMenuBlockedUntil = Date.now() + 350;
       }
     },
   },
@@ -439,7 +438,8 @@ export default {
       this.togglePlayerMode();
     },
     toggleMobileMenu() {
-      if (Date.now() < this.mobileMenuBlockedUntil) return;
+      // This is a dedicated, visible button: never swallow its tap because
+      // the player was opened a fraction of a second ago.
       this.mobileMenuOpen = !this.mobileMenuOpen;
     },
     handleMobileMediaAction(action) {

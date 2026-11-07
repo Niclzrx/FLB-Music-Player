@@ -1,30 +1,16 @@
 export function bingAnArtist (artist: string) {
-  // Switch to FLBing
-  const bingBtn = document.querySelector('#FLBing') as HTMLDivElement;
-  bingBtn.click();
-  bingBtn.querySelector('a')?.click();
-
-  // Enter artist to search
-  setTimeout(() => {
-    if (document.querySelector('#bingSearch')) {
-      const bingSearch = document.querySelector(
-        '#bingSearch'
-      ) as HTMLInputElement;
-      bingSearch.focus();
-      bingSearch.value = artist;
-
-      // Initiate search
-      const bingEnter = document.querySelector('#bingEnter') as HTMLDivElement;
-      bingEnter.click();
-
-      setTimeout(() => {
-        if (document.querySelector('.bing_artist')) {
-          const firstArtistCard = document.querySelector(
-            '.bing_artist'
-          ) as HTMLDivElement;
-          firstArtistCard.click();
-        }
-      }, 1200);
-    }
-  }, 500);
+  // Open the Meld view. The outstanding query is also kept on window so the
+  // component can pick it up if it has not mounted yet.
+  const meldButton = document.querySelector('#FLBing') as HTMLDivElement | null;
+  if (meldButton) {
+    meldButton.click();
+    meldButton.querySelector('a')?.click();
+  }
+  (window as any).__FLB_MELD_PENDING_SEARCH__ = artist;
+  window.dispatchEvent(new CustomEvent('flb-meld-search', { detail: artist }));
+  // When Meld is already mounted the event above handled the search, so the
+  // queued query must not run again on the next visit.
+  if (document.querySelector('.MeldView')) {
+    delete (window as any).__FLB_MELD_PENDING_SEARCH__;
+  }
 }

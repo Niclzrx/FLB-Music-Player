@@ -1,6 +1,12 @@
 <template>
-  <div class="bg">
+  <div :class="['bg', { 'bgFixed': isFixedWallpaper }]">
+    <div
+      v-if="isFixedWallpaper"
+      class="bgFixedImage"
+      :style="{ backgroundImage: `url(${wallpaperImage})` }"
+    />
     <img
+      v-else
       id="bg_fancy"
       :src="albumArt"
     >
@@ -19,8 +25,17 @@ export default {
     playingTrack() {
       return this.$store.state.PlaybackManger.playingTrackInfo.track;
     },
+    settings() {
+      return this.$store.state.SettingsManager.settings;
+    },
     theme() {
-      return this.$store.state.SettingsManager.settings.theme;
+      return this.settings.theme;
+    },
+    wallpaperImage() {
+      return this.settings.wallpaperImage || '';
+    },
+    isFixedWallpaper() {
+      return this.settings.wallpaperMode === 'fixed' && !!this.wallpaperImage;
     },
     albumArt() {
       if (this.playingTrack?.albumArt) {
@@ -40,6 +55,7 @@ export default {
   left: 0;
   width: 120%;
   height: 100vh;
+  height: 100dvh;
   .hideImage {
     border-radius: 50% !important;
     height: 0% !important;
@@ -53,6 +69,29 @@ export default {
     height: 100%;
     filter: blur(50px);
     opacity: 0.3;
+  }
+  &.bgFixed {
+    width: 100vw;
+    height: 100dvh;
+  }
+  .bgFixedImage {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+    opacity: 0.58;
+    filter: brightness(0.78) saturate(1.06);
+    transform: scale(1.01);
+  }
+  &.bgFixed::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.22);
+    background: color-mix(in srgb, var(--appBackground) 24%, transparent);
   }
 }
 </style>

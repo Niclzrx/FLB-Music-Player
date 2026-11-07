@@ -6,6 +6,7 @@
       theme + '_theme',
       miniMode ? 'miniMode' : '',
       isMobile ? 'mobileMode' : '',
+      hasFixedWallpaper ? 'hasFixedWallpaper' : '',
     ]"
     @click="cleanUp"
   >
@@ -47,11 +48,11 @@
     </nav>
     <playing-pane
       class="mb5 mt5"
-      v-if="playingTrack && !guestInParty"
+      v-if="playingTrack && !guestInParty && !meldPlaying"
       ref="mobilePlayer"
       @fullPlayer="reactToFullPlayer"
     />
-    <bg v-if="theme === 'fancy'" />
+    <bg v-if="showBackground" />
   </div>
 </template>
 <script>
@@ -69,8 +70,17 @@ export default {
     };
   },
   computed: {
+    settings() {
+      return this.$store.state.SettingsManager.settings;
+    },
     theme() {
-      return this.$store.state.SettingsManager.settings.theme;
+      return this.settings.theme;
+    },
+    hasFixedWallpaper() {
+      return this.settings.wallpaperMode === 'fixed' && !!this.settings.wallpaperImage;
+    },
+    showBackground() {
+      return this.theme === 'fancy' || this.hasFixedWallpaper;
     },
     playingTrack() {
       return this.$store.state.PlaybackManger.playingTrackInfo.track;
@@ -80,6 +90,9 @@ export default {
     },
     partyPage() {
       return this.$store.state.UIController.UIProperties.currentPage === 'Party';
+    },
+    meldPlaying() {
+      return this.$store.state.UIController.UIProperties.meldPlaying;
     },
     /** Guests of a party only watch, the local player is out of the way. */
     guestInParty() {
@@ -155,6 +168,8 @@ export default {
         });
         return;
       }
+      const meldBack = window.__FLB_MELD_BACK__;
+      if (typeof meldBack === 'function' && meldBack()) return;
       const player = this.$refs.mobilePlayer;
       if (player && typeof player.handleAndroidBack === 'function' && player.handleAndroidBack()) {
         return;
@@ -248,6 +263,11 @@ body {
   display: flex;
   flex-direction: column;
   background: var(--appBackground, rgb(0, 0, 0));
+}
+/* A fixed wallpaper lives below the app shell. Let it show through every
+   theme, including the light theme that normally paints #app white. */
+#app.hasFixedWallpaper {
+  background: transparent !important;
 }
 ::-webkit-scrollbar {
   background: rgba(0, 0, 0, 0);
@@ -857,8 +877,28 @@ body {
     min-width: 36px;
     height: 36px;
     min-height: 36px;
+    flex: 0 0 36px;
+    box-sizing: border-box;
     padding: 0;
     border-radius: 11px;
+  }
+  #app.mobileMode .Titlebar .sortWidget {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+    flex: 0 0 36px;
+  }
+  #app.mobileMode .Titlebar .sortWidget .sortToggleButton {
+    width: 100%;
+    height: 100%;
+  }
+  /* Align the sort popover to the right edge instead of centering a larger
+     panel under a 36px cell, which used to push it off screen. */
+  #app.mobileMode .Titlebar .sortWidget .sortParamsWrapper {
+    left: auto;
+    right: 0;
+    transform: translateY(105%);
   }
   #app.mobileMode .Titlebar .multiSelect .btnText,
   #app.mobileMode .Titlebar .sortToggleButton .btnText {
@@ -999,15 +1039,18 @@ body {
     right: 12px;
   }
   body.fullScreenPlayingPane #app.mobileMode .playingPane .mobilePlayerMenu {
-    position: absolute;
+    position: fixed;
     top: calc(env(safe-area-inset-top) + 64px);
     left: 12px;
-    z-index: 95;
+    z-index: 96;
     width: min(240px, calc(100vw - 72px));
+    max-height: calc(100dvh - 88px - env(safe-area-inset-bottom));
     box-sizing: border-box;
     padding: 7px;
+    overflow-y: auto;
     border: 1px solid var(--borderColor);
     border-radius: 18px;
+    background: var(--secondaryColor);
     background: color-mix(in srgb, var(--secondaryColor) 96%, transparent);
     box-shadow: 0 18px 50px #0007;
     backdrop-filter: blur(26px);
@@ -1158,6 +1201,16 @@ body {
     bottom: calc(160px + env(safe-area-inset-bottom));
     max-height: calc(100dvh - 180px - env(safe-area-inset-bottom));
     overflow: auto;
+  }
+  /* The equalizer is opened from the full player, so it has to sit above it
+     instead of being hidden behind the player overlay. */
+  body.fullScreenPlayingPane #app.mobileMode .Equalizer.widget {
+    z-index: 96;
+    left: auto;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    width: min(300px, calc(100vw - 24px));
+    max-height: calc(100dvh - 24px - env(safe-area-inset-bottom));
   }
   /* Landscape phones keep the cover on the left and the time/controls on the
      right so nothing overlaps or leaves the viewport. */

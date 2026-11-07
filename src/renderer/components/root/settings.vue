@@ -187,6 +187,56 @@
             </div>
           </ul>
         </article>
+        <article class="bg1 wallpaperSettings">
+          <h4>{{ t('settings.wallpaper') }}</h4>
+          <ul class="grid2 gap20 wallpaperModes">
+            <div
+              :class="[
+                settings.wallpaperMode !== 'fixed' ? 'activeSetting' : '',
+                'bg2',
+              ]"
+              @click="useDynamicWallpaper"
+            >
+              <p>{{ t('settings.wallpaperDynamic') }}</p>
+              <small>{{ t('settings.wallpaperDynamicHint') }}</small>
+            </div>
+            <div
+              :class="[
+                settings.wallpaperMode === 'fixed' ? 'activeSetting' : '',
+                'bg2',
+              ]"
+              @click="useFixedWallpaper"
+            >
+              <p>{{ t('settings.wallpaperFixed') }}</p>
+              <small>{{ t('settings.wallpaperFixedHint') }}</small>
+            </div>
+          </ul>
+          <div
+            v-if="settings.wallpaperImage"
+            class="wallpaperPreview"
+            :style="{ backgroundImage: `url('${settings.wallpaperImage}')` }"
+          />
+          <div class="wallpaperActions">
+            <base-button
+              :text="settings.wallpaperImage ? t('settings.changeWallpaper') : t('settings.chooseWallpaper')"
+              :active="!settings.wallpaperImage"
+              @click.native="openWallpaperPicker"
+            />
+            <base-button
+              v-if="settings.wallpaperImage"
+              :text="t('settings.removeWallpaper')"
+              :transparent="true"
+              @click.native="removeWallpaper"
+            />
+          </div>
+          <input
+            ref="wallpaperInput"
+            class="wallpaperInput"
+            type="file"
+            accept="image/*"
+            @change="handleWallpaperFile"
+          >
+        </article>
         <article class="bg1">
           <h4>{{ t('settings.language') }}</h4>
           <ul class="grid2 gap20">
@@ -434,6 +484,114 @@ export default {
         app.style.removeProperty("--accentColor", `#0066ff`);
       }
     },
+    useDynamicWallpaper() {
+      this.setSettingValue({
+        property: "wallpaperMode",
+        newValue: "dynamic",
+      });
+    },
+    useFixedWallpaper() {
+      if (!this.settings.wallpaperImage) {
+        // Picking an image is the only sensible next step when the user
+        // selects the fixed mode for the first time.
+        this.openWallpaperPicker();
+        return;
+      }
+      this.setSettingValue({
+        property: "wallpaperMode",
+        newValue: "fixed",
+      });
+    },
+    openWallpaperPicker() {
+      const input = this.$refs.wallpaperInput;
+      if (input) input.click();
+    },
+    async handleWallpaperFile(event) {
+      const input = event.target;
+      const file = input.files && input.files[0];
+      // Allow selecting the same file again after a failed attempt.
+      input.value = "";
+      if (!file) return;
+      if (!file.type || !file.type.startsWith("image/")) {
+        this.pushNotification({
+          title: this.t("settings.wallpaperError"),
+          subTitle: this.t("settings.wallpaperInvalid"),
+          type: "danger",
+        });
+        return;
+      }
+      try {
+        const wallpaperImage = await this.compressWallpaper(file);
+        this.setSettingValue({
+          property: "wallpaperImage",
+          newValue: wallpaperImage,
+        });
+        this.setSettingValue({
+          property: "wallpaperMode",
+          newValue: "fixed",
+        });
+        this.pushNotification({
+          title: this.t("settings.wallpaperUpdated"),
+          subTitle: this.t("settings.wallpaperUpdatedHint"),
+          type: "normal",
+        });
+      } catch (error) {
+        console.error("Could not prepare wallpaper", error);
+        this.pushNotification({
+          title: this.t("settings.wallpaperError"),
+          subTitle: this.t("settings.wallpaperErrorHint"),
+          type: "danger",
+        });
+      }
+    },
+    compressWallpaper(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(reader.error || new Error("read failed"));
+        reader.onload = () => {
+          const image = new Image();
+          image.onerror = () => reject(new Error("decode failed"));
+          image.onload = () => {
+            // Keep the settings JSON small enough for localStorage and the
+            // mobile settings record. 1920px is plenty for a phone/desktop
+            // background and avoids multi-megabyte data URLs.
+            const maxSide = 1920;
+            const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+            const width = Math.max(1, Math.round(image.width * scale));
+            const height = Math.max(1, Math.round(image.height * scale));
+            const canvas = document.createElement("canvas");
+            canvas.width = width;
+            canvas.height = height;
+            const context = canvas.getContext("2d");
+            if (!context) {
+              reject(new Error("canvas unavailable"));
+              return;
+            }
+            // Transparent images become a neutral surface instead of black.
+            context.fillStyle = "#111318";
+            context.fillRect(0, 0, width, height);
+            context.drawImage(image, 0, 0, width, height);
+            try {
+              resolve(canvas.toDataURL("image/jpeg", 0.82));
+            } catch (error) {
+              reject(error);
+            }
+          };
+          image.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    },
+    removeWallpaper() {
+      this.setSettingValue({
+        property: "wallpaperMode",
+        newValue: "dynamic",
+      });
+      this.setSettingValue({
+        property: "wallpaperImage",
+        newValue: "",
+      });
+    },
     selectFeedbackType(type) {
       this.feedbackType = type;
       this.UIcontrollerSetPropertyValue({
@@ -571,6 +729,44 @@ export default {
   }
   .activeSetting {
     background: var(--accentColor) !important;
+  }
+  /* Wallpaper picker */
+  .wallpaperModes div {
+    box-sizing: border-box;
+    height: auto !important;
+    min-height: 54px;
+    padding: 8px;
+    text-align: center;
+    white-space: normal;
+  }
+  .wallpaperModes small {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.68rem;
+    line-height: 1.3;
+    opacity: 0.72;
+    white-space: normal;
+  }
+  .wallpaperPreview {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    max-height: 190px;
+    margin-top: 12px;
+    border: 1px solid var(--borderColor);
+    border-radius: 14px;
+    background-color: rgba(0, 0, 0, 0.18);
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+  }
+  .wallpaperActions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .wallpaperInput {
+    display: none;
   }
   .shortcut {
     display: flex;

@@ -527,6 +527,8 @@ const defaultSettings: any = {
   scannedFolders: [],
   enableEqualizer: false,
   language: "en",
+  wallpaperMode: "dynamic",
+  wallpaperImage: "",
 };
 
 async function initializeApp() {

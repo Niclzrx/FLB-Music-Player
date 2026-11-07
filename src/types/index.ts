@@ -198,7 +198,11 @@ export interface SettingsType {
   foldersToScan: Array<string>;
   enableEqualizer: boolean;
   language: LanguageType;
+  wallpaperMode: WallpaperModeType;
+  wallpaperImage: string;
 }
+
+export type WallpaperModeType = "dynamic" | "fixed";
 
 export type ThemeType =
   | "fancy"

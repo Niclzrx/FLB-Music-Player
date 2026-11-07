@@ -1369,12 +1369,20 @@ export default {
 
 <style lang="scss">
 .partyView {
-  --party-cyan: var(--accentColor);
-  --party-lime: var(--accentColor);
-  --party-card: color-mix(in srgb, var(--secondaryColor) 92%, transparent);
-  --party-line: color-mix(in srgb, var(--accentColor) 20%, transparent);
-  --party-soft: color-mix(in srgb, var(--accentColor) 7%, transparent);
-  --party-glow: color-mix(in srgb, var(--accentColor) 55%, transparent);
+  /* Every Party surface/status color is derived from the active theme. The
+     first value of each pair is the fallback for older Android WebViews,
+     which do not support color-mix(). */
+  --party-cyan: var(--accentColor, #0066ff);
+  --party-lime: var(--accentColor, #0066ff);
+  --party-card: var(--secondaryColor, rgba(255, 255, 255, 0.056));
+  --party-line: var(--borderColor, rgba(255, 255, 255, 0.356));
+  --party-soft: var(--primaryColor, rgba(255, 255, 255, 0.028));
+  --party-glow: var(--accentColor, #0066ff);
+  --party-accent-13: var(--party-soft);
+  --party-accent-7: var(--party-soft);
+  --party-danger: #ff4d6d;
+  --party-warning: var(--accentColor, #0066ff);
+  --party-ok: var(--accentColor, #0066ff);
   position: relative;
   isolation: isolate;
   width: 100%;
@@ -1385,9 +1393,10 @@ export default {
   box-sizing: border-box;
   overflow: hidden;
   color: var(--textColor);
+  background: var(--appBackground, #000) !important;
   background:
-    radial-gradient(ellipse at 14% 0%, color-mix(in srgb, var(--accentColor) 13%, transparent), transparent 36%),
-    radial-gradient(ellipse at 90% 100%, color-mix(in srgb, var(--accentColor) 7%, transparent), transparent 38%),
+    radial-gradient(ellipse at 14% 0%, var(--party-accent-13), transparent 36%),
+    radial-gradient(ellipse at 90% 100%, var(--party-accent-7), transparent 38%),
     var(--appBackground) !important;
 
   &::before {
@@ -1397,6 +1406,7 @@ export default {
     inset: 0;
     pointer-events: none;
     opacity: .22;
+    background-image: linear-gradient(var(--party-line) 1px, transparent 1px), linear-gradient(90deg, var(--party-line) 1px, transparent 1px);
     background-image: linear-gradient(color-mix(in srgb, var(--accentColor) 7%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--accentColor) 7%, transparent) 1px, transparent 1px);
     background-size: 34px 34px;
     mask-image: linear-gradient(to bottom, black, transparent 88%);
@@ -1430,7 +1440,7 @@ export default {
     margin-bottom: 10px;
   }
   .party_qrRead {
-    color: seagreen;
+    color: var(--party-ok);
   }
   .party_scanner {
     width: 100%;
@@ -1447,7 +1457,7 @@ export default {
     width: 100%;
     max-width: 320px;
     border-radius: 15px;
-    background: #000;
+    background: var(--appBackground, #000);
   }
   .party_headerSpacer {
     width: 35px;
@@ -1469,7 +1479,7 @@ export default {
     overflow-wrap: anywhere;
   }
   .party_error {
-    color: crimson;
+    color: var(--party-danger);
     font-size: 0.9rem;
     margin-top: 10px;
   }
@@ -1687,10 +1697,10 @@ export default {
     margin-bottom: 4px;
   }
   .party_removeBt {
-    background: crimson;
+    background: var(--party-danger) !important;
   }
   .party_acceptBt {
-    background: seagreen;
+    background: var(--party-ok) !important;
   }
   .party_trackInfo {
     flex: 1;
@@ -1813,9 +1823,9 @@ export default {
   }
   .party_connectionBadge { margin-left: auto; }
   .party_connectionBadge.is-error,
-  .party_connectionNotice.is-error { color: #ff8b9b; border-color: rgba(255,100,120,.3); background: rgba(255,70,100,.08); }
+  .party_connectionNotice.is-error { color: var(--party-danger); border-color: var(--party-danger); background: var(--party-soft); }
   .party_connectionBadge.is-connecting,
-  .party_connectionNotice.is-connecting { color: #ffd979; border-color: rgba(255,217,121,.3); }
+  .party_connectionNotice.is-connecting { color: var(--party-warning); border-color: var(--party-warning); background: var(--party-soft); }
   .party_statusDot { width: 7px; height: 7px; border-radius: 50%; background: var(--party-lime); box-shadow: 0 0 10px var(--party-glow); }
   .party_liveBadge { color: var(--party-lime); border-color: var(--party-line); background: var(--party-soft); }
   .party_eyebrow { margin: 0 0 4px; color: var(--party-cyan); font-size: .66rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
@@ -1833,8 +1843,8 @@ export default {
   .party_memberInfo strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .85rem; }
   .party_memberInfo small { opacity: .62; font-size: .7rem; }
   .party_memberOnline { padding: 4px 6px; border: 0; background: transparent; font-size: .66rem; }
-  .party_memberOnline.is-connecting { color: #ffd979; }
-  .party_memberOnline.is-connecting .party_statusDot { background: #ffd979; box-shadow: 0 0 10px rgba(255,217,121,.65); }
+  .party_memberOnline.is-connecting { color: var(--party-warning); }
+  .party_memberOnline.is-connecting .party_statusDot { background: var(--party-warning); box-shadow: 0 0 10px var(--party-warning); }
   .party_memberOnline .party_statusDot { width: 6px; height: 6px; }
   .party_emptyMembers { margin: 2px 0; padding: 10px; border: 1px dashed var(--party-line); border-radius: 12px; color: color-mix(in srgb, var(--textColor) 60%, transparent); text-align: center; font-size: .78rem; }
   .party_guestBody { grid-template-columns: minmax(260px, 380px) minmax(0, 1fr); }
@@ -1844,7 +1854,7 @@ export default {
   .party_guestRoomStatus p { margin: 10px 0 3px; font-weight: 650; }
   .party_guestRoomStatus small { display: block; overflow-wrap: anywhere; opacity: .55; font-size: .7rem; }
   .party_guestMain { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-  .party_connectionNotice { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; padding: 10px 12px; border: 1px solid rgba(255,217,121,.25); border-radius: 14px; color: #ffd979; background: rgba(255,217,121,.06); font-size: .82rem; }
+  .party_connectionNotice { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; padding: 10px 12px; border: 1px solid var(--party-line); border-radius: 14px; color: var(--party-warning); background: var(--party-soft); font-size: .82rem; }
   &.party_mode_guest {
     .party_nowPlayingCard { margin: 0; box-shadow: 0 15px 45px rgba(0,0,0,.24); }
     .party_nowInfo { min-width: 0; }
@@ -1924,6 +1934,22 @@ export default {
     .party_scanner { box-sizing: border-box; max-width: none; padding: 12px; }
     .party_formModes { gap: 8px; }
     .party_formModes > * { font-size: 12px; }
+  }
+}
+
+/* Modern WebViews get soft translucent accent tints. The plain theme tokens
+   above remain the fallback when color-mix() is not available. */
+@supports (color: color-mix(in srgb, red 50%, transparent)) {
+  .partyView {
+    --party-card: color-mix(in srgb, var(--secondaryColor) 92%, transparent);
+    --party-line: color-mix(in srgb, var(--accentColor) 20%, transparent);
+    --party-soft: color-mix(in srgb, var(--accentColor) 7%, transparent);
+    --party-glow: color-mix(in srgb, var(--accentColor) 55%, transparent);
+    --party-accent-13: color-mix(in srgb, var(--accentColor) 13%, transparent);
+    --party-accent-7: color-mix(in srgb, var(--accentColor) 7%, transparent);
+    --party-danger: color-mix(in srgb, #ff4d6d 72%, var(--accentColor));
+    --party-warning: color-mix(in srgb, #ffcf4a 55%, var(--accentColor));
+    --party-ok: color-mix(in srgb, #3ddc97 42%, var(--accentColor));
   }
 }
 

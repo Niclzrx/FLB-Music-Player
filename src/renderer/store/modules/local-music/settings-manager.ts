@@ -28,6 +28,8 @@ const state = {
     scannedFolders: [],
     enableEqualizer: false,
     language: 'en',
+    wallpaperMode: 'dynamic',
+    wallpaperImage: '',
   }
 };
 const mutations = {

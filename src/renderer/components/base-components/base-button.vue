@@ -74,7 +74,9 @@ button {
   cursor: pointer;
   font-family: inherit;
   border: none;
-  transition: 0.2s ease;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.2s ease, color 0.2s ease, filter 0.12s ease, opacity 0.12s ease;
   &:hover {
     background: rgba(255, 255, 255, 0.192);
   }
@@ -82,8 +84,9 @@ button {
     white-space: nowrap;
   }
   &:active {
-    padding: 10px;
-    // border: 2px solid rgb(255, 255, 255);
+    /* Never change the padding on press: that used to make 36px titlebar
+       buttons grow to 56px and clip against the window edge. */
+    filter: brightness(1.18);
   }
   .btnLoaderWrapper {
     width: 100%;
@@ -128,6 +131,7 @@ button {
 .iconBtn {
   height: 40px;
   width: 40px;
+  flex: 0 0 auto;
   border-radius: 35%;
   display: flex;
   justify-content: center;

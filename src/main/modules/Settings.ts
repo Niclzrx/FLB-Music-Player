@@ -16,6 +16,8 @@ export class Settings {
     foldersToScan: [paths.musicFolder],
     enableEqualizer: false,
     language: "en",
+    wallpaperMode: "dynamic",
+    wallpaperImage: "",
   };
   constructor() {
     if (fs.existsSync(paths.settingsLocation)) {

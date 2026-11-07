@@ -65,6 +65,7 @@ export { default as PhSpeakerSimpleLow } from "phosphor-vue/src/components/PhSpe
 export { default as PhSpeakerSimpleHigh } from "phosphor-vue/src/components/PhSpeakerSimpleHigh.vue";
 export { default as PhSpeakerSlash } from "phosphor-vue/src/components/PhSpeakerSlash.vue";
 export { default as PhArrowClockwise } from "phosphor-vue/src/components/PhArrowClockwise.vue";
+export { default as PhArrowLeft } from "phosphor-vue/src/components/PhArrowLeft.vue";
 export { default as PhBookOpen } from "phosphor-vue/src/components/PhBookOpen.vue";
 export { default as PhCaretDown } from "phosphor-vue/src/components/PhCaretDown.vue";
 export { default as PhCaretLeft } from "phosphor-vue/src/components/PhCaretLeft.vue";
@@ -74,6 +75,7 @@ export { default as PhClockClockwise } from "phosphor-vue/src/components/PhClock
 export { default as PhCloudArrowDown } from "phosphor-vue/src/components/PhCloudArrowDown.vue";
 export { default as PhCrop } from "phosphor-vue/src/components/PhCrop.vue";
 export { default as PhDisc } from "phosphor-vue/src/components/PhDisc.vue";
+export { default as PhDotsThree } from "phosphor-vue/src/components/PhDotsThree.vue";
 export { default as PhFaders } from "phosphor-vue/src/components/PhFaders.vue";
 export { default as PhFolderSimple } from "phosphor-vue/src/components/PhFolderSimple.vue";
 export { default as PhFunnelSimple } from "phosphor-vue/src/components/PhFunnelSimple.vue";
@@ -81,6 +83,7 @@ export { default as PhGearSix } from "phosphor-vue/src/components/PhGearSix.vue"
 export { default as PhHeart } from "phosphor-vue/src/components/PhHeart.vue";
 export { default as PhHouse } from "phosphor-vue/src/components/PhHouse.vue";
 export { default as PhListPlus } from "phosphor-vue/src/components/PhListPlus.vue";
+export { default as PhMagnifyingGlass } from "phosphor-vue/src/components/PhMagnifyingGlass.vue";
 export { default as PhMicrophone } from "phosphor-vue/src/components/PhMicrophone.vue";
 export { default as PhMusicNoteSimple } from "phosphor-vue/src/components/PhMusicNoteSimple.vue";
 export { default as PhMusicNotesSimple } from "phosphor-vue/src/components/PhMusicNotesSimple.vue";
@@ -92,6 +95,7 @@ export { default as PhQueue } from "phosphor-vue/src/components/PhQueue.vue";
 export { default as PhRepeat } from "phosphor-vue/src/components/PhRepeat.vue";
 export { default as PhSelectionBackground } from "phosphor-vue/src/components/PhSelectionBackground.vue";
 export { default as PhShuffle } from "phosphor-vue/src/components/PhShuffle.vue";
+export { default as PhSignIn } from "phosphor-vue/src/components/PhSignIn.vue";
 export { default as PhSkipBack } from "phosphor-vue/src/components/PhSkipBack.vue";
 export { default as PhSkipForward } from "phosphor-vue/src/components/PhSkipForward.vue";
 export { default as PhSortAscending } from "phosphor-vue/src/components/PhSortAscending.vue";

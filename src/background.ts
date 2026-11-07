@@ -6,10 +6,12 @@ import {
   ipcMain,
   protocol,
   screen,
+  session,
   shell,
 } from "electron";
 import { createProtocol } from "vue-cli-plugin-electron-builder/lib";
 import fs from "fs";
+import https from "https";
 import path from "path";
 import { autoUpdater } from "electron-updater";
 import NodeID3 from "node-id3";
@@ -211,6 +213,145 @@ ipcMain.on("initializeApp", () => {
 
 ipcMain.on("resetApp", () => {
   resetApp();
+});
+
+/**
+ * Meld talks to music.youtube.com from the main process so authenticated
+ * requests can send a Cookie header (renderer fetch forbids it). The body is
+ * always JSON and the response is returned as parsed JSON when possible.
+ */
+interface MeldFetchPayload {
+  url: string;
+  headers: Record<string, string>;
+  body: any;
+}
+
+ipcMain.handle(
+  "meldFetch",
+  (event, payload: MeldFetchPayload): Promise<any> => {
+    return new Promise((resolve) => {
+      let target: URL;
+      try {
+        target = new URL(payload.url);
+      } catch (error) {
+        resolve({ ok: false, status: 0, data: "Invalid request URL" });
+        return;
+      }
+
+      if (target.protocol !== "https:") {
+        resolve({ ok: false, status: 0, data: "Only HTTPS is supported" });
+        return;
+      }
+
+      const body = JSON.stringify(payload.body || {});
+      const headers = {
+        ...(payload.headers || {}),
+        "Content-Length": Buffer.byteLength(body),
+      };
+
+      const request = https.request(
+        {
+          protocol: target.protocol,
+          hostname: target.hostname,
+          port: target.port || 443,
+          path: `${target.pathname}${target.search}`,
+          method: "POST",
+          headers,
+        },
+        (response) => {
+          const chunks: Buffer[] = [];
+          response.on("data", (chunk) => {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+          });
+          response.on("end", () => {
+            const text = Buffer.concat(chunks).toString("utf8");
+            let data: any = text;
+            try {
+              data = JSON.parse(text);
+            } catch (error) {
+              // Keep the plain text, the renderer shows it as the error.
+            }
+            const status = response.statusCode || 0;
+            resolve({ ok: status >= 200 && status < 300, status, data });
+          });
+        }
+      );
+
+      request.on("error", (error) => {
+        resolve({ ok: false, status: 0, data: error.message });
+      });
+      request.setTimeout(30000, () => {
+        request.destroy(new Error("YouTube Music request timed out"));
+      });
+      request.write(body);
+      request.end();
+    });
+  }
+);
+
+/**
+ * Opens the real YouTube Music site in a browser window and keeps the cookies
+ * when it closes. Google can reject embedded sign-in, so the Meld account
+ * panel also accepts a pasted Cookie header as a fallback.
+ */
+ipcMain.handle("meldLogin", async (): Promise<string> => {
+  const partition = "persist:meld-login";
+  const authSession = session.fromPartition(partition);
+  const authWindow = new BrowserWindow({
+    width: 980,
+    height: 760,
+    parent: win,
+    modal: false,
+    title: "YouTube Music",
+    autoHideMenuBar: true,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      partition,
+    },
+  });
+  authWindow.setMenuBarVisibility(false);
+  authWindow.webContents.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+      "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+  );
+
+  let finishPromise: Promise<string> | null = null;
+  const finish = (): Promise<string> => {
+    if (finishPromise) return finishPromise;
+    finishPromise = authSession.cookies
+      .get({})
+      .then((cookies) =>
+        cookies
+          .filter((cookie) => {
+            const domain = cookie.domain || "";
+            return (
+              domain === "youtube.com" ||
+              domain.endsWith(".youtube.com") ||
+              domain.endsWith("music.youtube.com")
+            );
+          })
+          .map((cookie) => `${cookie.name}=${cookie.value}`)
+          .join("; ")
+      )
+      .catch((error) => {
+        console.log("Could not read the YouTube Music session", error);
+        return "";
+      });
+    return finishPromise;
+  };
+
+  return new Promise((resolve) => {
+    authWindow.on("close", () => {
+      finish().then(resolve);
+    });
+    authWindow.on("closed", () => {
+      finish().then(resolve);
+    });
+    authWindow.loadURL("https://music.youtube.com/").catch((error) => {
+      console.log("Could not open the YouTube Music login", error);
+    });
+  });
 });
 
 ipcMain.on("updatePlaylists", (e, payload) => {

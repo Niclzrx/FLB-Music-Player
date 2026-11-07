@@ -24,6 +24,11 @@ interface UIControllerStateInterface {
     currentSidePaneTab: 'Info' | 'Lyrics' | 'Queue';
     currentPodcastsTab: 'Discover' | 'Subscriptions' | 'Downloads';
     multiSelectMode: boolean;
+    /**
+     * Meld has its own embedded YouTube player and bottom bar. While it owns
+     * playback the normal compact player steps out of the way.
+     */
+    meldPlaying: boolean;
   };
 }
 const state: UIControllerStateInterface = {
@@ -39,7 +44,8 @@ const state: UIControllerStateInterface = {
     currentMainTab: 'Home',
     currentSidePaneTab: 'Info',
     currentPodcastsTab: 'Discover',
-    multiSelectMode: false
+    multiSelectMode: false,
+    meldPlaying: false
   }
 };
 const mutations = {

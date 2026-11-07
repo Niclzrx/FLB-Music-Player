@@ -30,6 +30,7 @@ export default {
       this.UIcontrollerToggleProperty('multiSelectMode');
       this.clearSelectedTracks();
       const trackOptions = document.querySelector('.trackOptions');
+      if (!trackOptions) return;
       if (this.multiSelectOn) {
         trackOptions.style.height = `0px`;
         trackOptions.style.top = `130px`;
